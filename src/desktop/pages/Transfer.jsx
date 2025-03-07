@@ -183,8 +183,8 @@ function Transfer() {
               </label>
               <input
                 type="text"
-                name="budget"
-                id="budget"
+                name="buget"
+                id="buget"
                 value={transfer.buget}
                 onChange={handleChange}
                 className="border border-[#A6A6A6] outline-none px-2 rounded "

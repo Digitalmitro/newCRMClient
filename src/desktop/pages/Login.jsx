@@ -18,13 +18,16 @@ function Login() {
     setError("");
 
     try {
-      const response = await fetch(`${import.meta.env.VITE_BACKEND_API}/auth/login`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ email, password }),
-      });
+      const response = await fetch(
+        `${import.meta.env.VITE_BACKEND_API}/client/login`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ email, password }),
+        }
+      );
 
       const data = await response.json();
 
@@ -35,7 +38,6 @@ function Login() {
       // Store token
       localStorage.setItem("token", data.token);
       setToken(data.token);
-      
 
       // Redirect to home or the intended page
       navigate("/");

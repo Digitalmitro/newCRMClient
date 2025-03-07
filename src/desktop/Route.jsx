@@ -45,30 +45,17 @@ function DesktopRouting() {
                 <div className="flex-1 border border-orange-400 min-h-screen">
                   <Searchbar />
                   <Routes>
-                    <Route path="/" element={<Home />} />
-                    <Route path="/attendance" element={<Attendance />} />
+                    {/* <Route path="/" element={<Home />} /> */}
+                    {/* <Route path="/attendance" element={<Attendance />} /> */}
                     <Route path="/chat" element={<Chat />} />
-                    <Route path="/create-channel" element={<CreateChannel />} />
-                    <Route path="/addpeople-channel" element={<AddChannelPeople />} />
-                    <Route path="/attendance-list" element={<AttendanceList />} />
-                    <Route path="/book-leave" element={<BookLeave />} />
-                    <Route path="/callback" element={<Callback />} />
-                    <Route path="/transfer" element={<Transfer />} />
-                    <Route path="/sales" element={<Sales />} />
-                    <Route path="/callbacklist" element={<CallbackList />} />
-                    <Route path="/transferlist" element={<TransferList />} />
-                    <Route path="/saleslist" element={<SalesList />} />
-                    <Route path="/concern" element={<Concern />} />
-                    <Route path="/notes" element={<NotesPage />} />
-                    <Route path="/notification" element={<NotificationPage/>}/>
-                    <Route path="/concern" element={<Concern/>}/>
-                    <Route path="/forgotClock" element={<ForgotClock/>}/>
+                  
+
+
+
                     <Route path="/addCoworker" element={<AddCoworkers/>}/>
                     <Route path="/addCoworker" element={<CreateChannel/>}/>
                     <Route path="/channelchat" element={<ChannelChat/>}/>
-                    <Route path="/callbackview" element={<CallbackView/>}/>
-                    <Route path="/salesview" element={<SalesView/>}/>
-                    <Route path="/transferview" element={<TransferView/>}/>
+                  
 
                   </Routes>
                 </div>

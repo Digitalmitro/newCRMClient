@@ -28,7 +28,7 @@ function Concern() {
 
   useEffect(() => {
     fetchAllConcern();
-  }, []);
+  }, [concern]);
 
   // Handle form submission
   const handleSubmit = async () => {
