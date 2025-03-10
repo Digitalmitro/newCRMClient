@@ -6,10 +6,12 @@ import logo from "../../../assets/desktop/logo.svg"
 import { onNotificationReceived } from "../../../utils/socket";
 import { MdLogout } from "react-icons/md";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "../../../context/authContext";
 function Searchbar() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [notification, setNotification] = useState([]);
+  const { setToken } = useAuth();
   const token = localStorage.getItem("token");
   const navigate=useNavigate();
   
@@ -27,7 +29,8 @@ function Searchbar() {
 
   const handleLogout=()=>{
     localStorage.removeItem("token");
-    navigate("/login")
+    setToken(null); // Update AuthContext state
+  navigate("/login", { replace: true }); 
   }
 
 

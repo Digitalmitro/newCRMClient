@@ -13,7 +13,7 @@ function Sidebarpart() {
   const [employees, setEmployees] = useState([]);
   const [channels, setChannels] = useState([]);
   const [unreadMessages, setUnreadMessages] = useState({});
-  const { getAllUsers } = useAuth();
+  const { getAllUsers,userData } = useAuth();
   const [openChatId, setOpenChatId] = useState(null);
   const navigate = useNavigate();
 
@@ -95,7 +95,7 @@ function Sidebarpart() {
         </nav>
         <div className="">
           <p className="rounded border flex items-center mb-4 justify-center w-10 text-2xl font-medium text-white bg-orange-600">
-            C
+            {userData?.name?.charAt(0)}
           </p>
         </div>
       </div>
@@ -103,7 +103,7 @@ function Sidebarpart() {
       <div className="bg-gray-200 w-[250px] p-4 border border-orange-400">
         <div className="flex justify-between items-center pt-4 mb-4">
           <h2 className="text-[18px] font-medium   flex gap-2">
-            Client
+            {userData?.name}
             <img src={arrow} alt="" className="w-[8px] pt-1" />
           </h2>
           <img src={edit} alt="" className="w-[10px] h-[10px]" />
@@ -115,7 +115,7 @@ function Sidebarpart() {
             Channels <img src={arrow} alt="" className="w-[8px] pt-1" />
           </h3>
           <ul className="mt-2">
-            {channels.map((channel) => (
+            {channels?.map((channel) => (
               <li key={channel._id}>
                 <p
                   className="block p-2 text-gray-700 font-medium text-[14px] cursor-pointer"

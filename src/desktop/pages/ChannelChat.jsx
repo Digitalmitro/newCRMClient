@@ -130,7 +130,7 @@ const ChannelChat = () => {
       document.getElementById("chatInput").focus();
     }, 0);
   };
-
+console.log(channelInfo)
   return (
     <div className="p-4 w-full flex flex-col h-[500px]">
       {/* Header */}

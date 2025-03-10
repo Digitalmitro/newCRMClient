@@ -29,8 +29,7 @@ const Chat = () => {
   const messagesEndRef = useRef(null);
   const [file, setFile] = useState(null);
   const [uploading, setUploading] = useState(false);
-  const [replyTo, setReplyTo] = useState(null);
-  const [replyIndex, setReplyIndex] = useState(null);
+  const [loading, setloading] = useState(false);
 
   const markMessagesAsRead = async (senderId) => {
     try {
@@ -141,17 +140,18 @@ const Chat = () => {
     let messageContent = input.trim();
 
     if (file) {
+      setloading(true)
       const fileUrl = await uploadFile(file);
 
       if (!fileUrl) return;
       messageContent = fileUrl.fileUrl;
       setFile(null);
+      setloading(false)
     }
     const newMessage = {
       sender: senderId,
       receiver: receiverId,
       message: messageContent,
-      
       createdAt: new Date(),
     };
 
@@ -219,7 +219,7 @@ const Chat = () => {
           return (
             <div
               key={index}
-              className={`p-2 max-w-xs rounded-lg mb-2 flex justify-between relative
+              className={`p-2 max-w-xs rounded-lg mb-2 flex justify-between 
                 ${
                   msg.sender === senderId
                     ? "bg-gradient-to-r from-orange-500 to-orange-400 text-white ml-auto"
@@ -275,29 +275,9 @@ const Chat = () => {
                   {msg.message}
                 </span>
               )}
-              <div>
-                <button
-                  className=" font-extrabold flex flex-col justify-end items-end w-4"
-                  onClick={
-                    () => setReplyIndex(replyIndex === index ? null : index) // Toggle reply for specific message
-                  }
-                >
-                  ⋮
-                </button>
-                <span className="text-[9px] flex flex-col justify-end items-end">
-                  {moment(msg.createdAt).format("HH:mm")}
-                </span>
-              </div>
-              {replyIndex === index && (
-                <div className="absolute right-0 top-6 text-gray-800 bg-white text-sm py-2 px-4 rounded shadow-lg">
-                  <span
-                    className="w-full text-left font-semibold"
-                    onClick={() => setReplyTo(msg)}
-                  >
-                    Reply
-                  </span>
-                </div>
-              )}
+              <span className="text-[9px] flex flex-col justify-end">
+                {moment(msg.createdAt).format("HH:mm")}
+              </span>
             </div>
           );
         })}
@@ -305,22 +285,18 @@ const Chat = () => {
       </div>
 
       <div className="p-4 bg-white flex flex-col items-center border-t fixed bottom-0 w-[65%] space-x-2">
-        <div className="w-full">
-          {replyTo && (
-            <div className="p-2 bg-gray-300 mb-4 rounded  text-sm flex justify-between items-center ">
-              <span>Replying to: {replyTo.message}</span>
-              <button
-                className="text-gray-700 font-bold"
-                onClick={() => setReplyTo(null)}
-              >
-                X
-              </button>
-            </div>
-          )}
-        </div>
+        
+         {
+          loading && (
+            <div className="flex items-center justify-center">
+            <div className="w-5 h-5 border-2 mb-4 border-orange-500 border-t-transparent rounded-full animate-spin"></div>
+          </div>
+          )
+         }
+        
 
-        <div className="flex w-full pl-4 space-x-2">
-          <div className="relative mt-2">
+        <div className="flex w-full items-center  space-x-2">
+          <div className="relative">
             <button onClick={() => setShowEmojiPicker(!showEmojiPicker)}>
               <BsEmojiSmile
                 size={22}
@@ -340,7 +316,7 @@ const Chat = () => {
             className="hidden"
             id="fileInput"
           />
-          <label htmlFor="fileInput" className="cursor-pointer mt-2">
+          <label htmlFor="fileInput" className="cursor-pointer">
             <Paperclip size={22} className="text-gray-500" />
           </label>
 
