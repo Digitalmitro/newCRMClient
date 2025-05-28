@@ -3,7 +3,7 @@ import { io } from "socket.io-client";
 // import { jwtDecode } from "jwt-decode";
 import logo from "../assets/desktop/logo.svg"
 
-const socket = io(`${import.meta.env.VITE_BACKEND_API}`, { autoConnect: false, reconnection: true });
+const socket = io(`${import.meta.env.VITE_BACKEND_API}`, { autoConnect: false, reconnection: true, withCredentials: true, transports: ["websocket", "polling"] });
 
 const requestNotificationPermission = async () => {
   if ("Notification" in window) {
@@ -25,7 +25,7 @@ const showNotification = (title, body) => {
 
 
 // Function to connect and authenticate socket
-export const connectSocket = () => {
+export const connectSocket =async  () => {
   const token = localStorage.getItem("token");
   if (!token) {
     console.warn("No token found in localStorage. Socket will not connect.");
@@ -39,12 +39,12 @@ export const connectSocket = () => {
   socket.connect();
 
   socket.on("connect", () => {
-    // console.log("✅ Socket connected:", socket.id);
+    // //("✅ Socket connected:", socket.id);
     socket.emit("authenticate", token);
   });
 
   socket.on("authenticated", (data) => {
-    // console.log("✅ User authenticated:", data);
+    // //("✅ User authenticated:", data);
   });
 
   socket.on("unauthorized", (msg) => {
@@ -78,7 +78,7 @@ export const sendMessage = (sender,receiver, message) => {
 export const onUserStatusUpdate = (callback) => {
   socket.off("updateUserStatus"); 
   socket.on("updateUserStatus", ({ userId, status }) => {
-    console.log(`User ${userId} is now ${status}`);
+    //(`User ${userId} is now ${status}`);
     callback({ userId, status });
   });
 
@@ -122,25 +122,37 @@ export const onMessageReceived = (callback) => {
 
 
 export const onNotificationReceived = (callback) => {
-  socket.on("receive-notification", (notification) => {
+  const handler = (notification) => {
     callback(notification);
-    // console.log(notification);
-
-    // ✅ Show browser notification for alerts
     showNotification(notification.title, notification.description);
-  });
+  };
+
+  socket.on("receive-notification", handler);
+
+  // 🔙 Return unsubscribe function for cleanup
+  return () => {
+    socket.off("receive-notification", handler);
+  };
 };
+
 
 // ✅ Listen for incoming messages in a channel
 export const onChannelMessageReceived = (callback) => {
-  socket.on("new-channel-message", (message) => {
-    callback(message);
-  });
+  socket.on("new-channel-message", callback);
+  return () => {
+    socket.off("new-channel-message", callback);
+  };
 };
 
+export const onSoftRefresh = (callback) => {
+  socket.on("soft-refresh", callback);
+  return () => {
+    socket.off("soft-refresh", callback);
+  };
+};
 // Disconnect socket
 export const disconnectSocket = () => {
-  console.log("🔌 Disconnecting socket...");
+  //("🔌 Disconnecting socket...");
   socket.disconnect();
 };
 

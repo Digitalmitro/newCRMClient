@@ -14,6 +14,8 @@ import { useAuth } from "../../context/authContext";
 import moment from "moment";
 import { BsEmojiSmile } from "react-icons/bs";
 import EmojiPicker from "emoji-picker-react";
+import { downloadImage } from "../../utils/helper";
+
 
 const Chat = () => {
   const location = useLocation();
@@ -233,20 +235,19 @@ const Chat = () => {
                 }px`,
               }}
             >
-              {isImage(msg.message) ? (
+               {isImage(msg.message) ? (
                 <>
                   <img
                     src={msg.message}
                     alt="Sent Image"
                     className="w-45 h-auto rounded-lg"
                   />
-                  <a
-                    href={msg.message}
-                    download
+                  <button
+                    onClick={() => downloadImage(msg.message)}
                     className="px-2 py-1 bg-blue-000 text-white text-xs rounded-full text-center mt-1 self-start shadow-md"
                   >
                     📥 Download
-                  </a>
+                  </button>
                 </>
               ) : isDocument(msg.message) ? (
                 <div className="flex items-center gap-2 bg-gray-200 text-black p-2 rounded-lg">
@@ -266,9 +267,9 @@ const Chat = () => {
                   href={msg.message}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="underline"
+                  className="underline break-words text-blue-300 break-all"
                 >
-                  📎 File Attachment
+                  {msg.message}
                 </a>
               ) : (
                 <span className="whitespace-pre-wrap break-words overflow-auto">

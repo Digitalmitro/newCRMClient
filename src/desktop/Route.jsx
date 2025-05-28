@@ -14,10 +14,14 @@ import NotificationPage from "./pages/Notification";
 import AddCoworkers from "./pages/AddCoworkers";
 import ChannelChat from "./pages/ChannelChat";
 import { useAuth } from "../context/authContext";
+import { useSocketSetup } from "../hooks/useSocketSetup";
+import { useGlobalNotification } from "../hooks/useGlobalNotifications";
 
 function DesktopRouting() {
   const { token } = useAuth();
 
+   useSocketSetup();
+   useGlobalNotification(); 
   return (
     <Routes>
       {/* Public Routes */}
