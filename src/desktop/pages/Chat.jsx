@@ -29,8 +29,8 @@ const Chat = () => {
   const [input, setInput] = useState("");
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const messagesEndRef = useRef(null);
-  const [file, setFile] = useState(null);
   const [uploading, setUploading] = useState(false);
+  const [file, setFile] = useState(null);
   const [loading, setloading] = useState(false);
 
   const markMessagesAsRead = async (senderId) => {
@@ -63,8 +63,7 @@ const Chat = () => {
       if (!senderId || !receiverId) return;
       try {
         const res = await axios.get(
-          `${
-            import.meta.env.VITE_BACKEND_API
+          `${import.meta.env.VITE_BACKEND_API
           }/message/messages/${senderId}/${receiverId}`
         );
         setMessages(res.data?.messages);
@@ -102,8 +101,8 @@ const Chat = () => {
     // ✅ Cleanup on unmount
     return () => {
       // console.log("🛑 Unsubscribing from listeners");
-      onMessageReceived(() => {}); // Remove listener
-      onUserStatusUpdate(() => {}); // Remove listener
+      onMessageReceived(() => { }); // Remove listener
+      onUserStatusUpdate(() => { }); // Remove listener
     };
   }, [senderId, receiverId]);
 
@@ -222,20 +221,18 @@ const Chat = () => {
             <div
               key={index}
               className={`p-2 max-w-xs rounded-lg mb-2 flex justify-between 
-                ${
-                  msg.sender === senderId
-                    ? "bg-gradient-to-r from-orange-500 to-orange-400 text-white ml-auto"
-                    : "bg-gradient-to-l from-gray-500 to-gray-700 text-white"
+                ${msg.sender === senderId
+                  ? "bg-gradient-to-r from-orange-500 to-orange-400 text-white ml-auto"
+                  : "bg-gradient-to-l from-gray-500 to-gray-700 text-white"
                 }`}
               style={{
-                width: `${
-                  msg.message.length <= 5
-                    ? 90
-                    : Math.min((msg.message?.length ?? 0) * 15, 300)
-                }px`,
+                width: `${msg.message.length <= 5
+                  ? 90
+                  : Math.min((msg.message?.length ?? 0) * 15, 300)
+                  }px`,
               }}
             >
-               {isImage(msg.message) ? (
+              {isImage(msg.message) ? (
                 <>
                   <img
                     src={msg.message}
@@ -286,15 +283,15 @@ const Chat = () => {
       </div>
 
       <div className="p-4 bg-white flex flex-col items-center border-t fixed bottom-0 w-[65%] space-x-2">
-        
-         {
+
+        {
           loading && (
             <div className="flex items-center justify-center">
-            <div className="w-5 h-5 border-2 mb-4 border-orange-500 border-t-transparent rounded-full animate-spin"></div>
-          </div>
+              <div className="w-5 h-5 border-2 mb-4 border-orange-500 border-t-transparent rounded-full animate-spin"></div>
+            </div>
           )
-         }
-        
+        }
+
 
         <div className="flex w-full items-center  space-x-2">
           <div className="relative">
