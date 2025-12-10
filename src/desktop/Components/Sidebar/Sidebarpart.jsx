@@ -7,6 +7,16 @@ import { useEffect, useState } from "react";
 import socket from "../../../utils/socket";
 import axios from "axios";
 
+const getStableColor = (text = "DM") => {
+  let hash = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    hash = text.charCodeAt(i) + ((hash << 5) - hash);
+    hash |= 0;
+  }
+  const hue = Math.abs(hash) % 360;
+  return `hsl(${hue}, 70%, 40%)`;
+};
+
 function Sidebarpart() {
   const { getChannels } = useAuth();
   const location = useLocation();
@@ -125,9 +135,7 @@ function Sidebarpart() {
                     <span
                       className="border items-center  flex justify-center w-5 h-5 text-[12px] font-medium text-white"
                       style={{
-                        backgroundColor: `hsl(${Math.floor(
-                          Math.random() * 360
-                        )}, 70%, 40%)`,
+                        backgroundColor: getStableColor(channel?.name),
                       }}
                     >
                       {channel?.name?.charAt(0).toUpperCase()}
@@ -167,9 +175,7 @@ function Sidebarpart() {
                     <span
                       className="border items-center  flex justify-center w-5 h-5 text-[12px] font-medium text-white"
                       style={{
-                        backgroundColor: `hsl(${Math.floor(
-                          Math.random() * 360
-                        )}, 70%, 40%)`,
+                        backgroundColor: getStableColor(user?.name),
                       }}
                     >
                       {user?.name?.charAt(0).toUpperCase()}
