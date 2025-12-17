@@ -1,9 +1,8 @@
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { BrowserRouter } from "react-router-dom";
 import DesktopRouting from "./desktop/Route";
 import MobileRouting from "./mobile/Route";
 import { AuthProvider } from "./context/authContext";
-import { connectSocket } from "./utils/socket";
 
 function App() {
   const [screenWidth, setScreenWidth] = useState(window.innerWidth);
@@ -23,7 +22,7 @@ function App() {
   return (
     <AuthProvider>
     <BrowserRouter>
-      {screenWidth >= 440 ? <DesktopRouting /> : <MobileRouting />}
+      {screenWidth >= 900 ? <DesktopRouting /> : <MobileRouting />}
     </BrowserRouter>
     </AuthProvider>
   );
