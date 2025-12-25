@@ -161,10 +161,9 @@ function Sidebarpart() {
           <h3 className="text-[15px] font-bold text-gray-600 flex gap-2">
             Messages <img src={arrow} alt="" className="w-[8px] pt-1" />
           </h3>
-          <ul className="mt-2">
+          <ul className="mt-2 max-h-[260px] overflow-y-auto pr-1">
             {employees
               ?.filter((user) => user.lastMessageTime)
-              ?.slice(0, 8)
               .map((user, i) => (
                 <li
                   key={i}
@@ -189,13 +188,14 @@ function Sidebarpart() {
                   </p>
                 </li>
               ))}
-            <li
-              className="block p-2 text-gray-700 text-[15px] cursor-pointer"
-              onClick={handleCowrokers}
-            >
-              + Add Coworker
-            </li>
           </ul>
+          <button
+            type="button"
+            className="block p-2 text-gray-700 text-[15px] cursor-pointer"
+            onClick={handleCowrokers}
+          >
+            + Add Coworker
+          </button>
         </div>
       </div>
     </div>

@@ -1,29 +1,47 @@
 import { useNavigate } from "react-router-dom";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import moment from "moment";
 import { FaEye } from "react-icons/fa";
 import { MdDelete } from "react-icons/md";
 
 function TransferList() {
   const [data, setData] = useState([]);
-  const [filteredData, setFilteredData] = useState([]); 
-  const [searchQuery, setSearchQuery] = useState(""); 
+  const [searchQuery, setSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
+  const [debouncedQuery, setDebouncedQuery] = useState("");
   const [totalPages, setTotalPages] = useState(1);
+  const lastSearchQueryRef = useRef("");
   const limit = 5;
   const navigate = useNavigate();
 
   useEffect(() => {
-    fetchData(currentPage);
-  }, [currentPage]);
+    const handle = setTimeout(() => {
+      setDebouncedQuery(searchQuery);
+    }, 300);
+    return () => clearTimeout(handle);
+  }, [searchQuery]);
 
-  const fetchData = async (page) => {
+  useEffect(() => {
+    if (debouncedQuery !== lastSearchQueryRef.current) {
+      lastSearchQueryRef.current = debouncedQuery;
+      if (currentPage !== 1) {
+        setCurrentPage(1);
+        return;
+      }
+    }
+    fetchTransfers(currentPage, debouncedQuery);
+  }, [currentPage, debouncedQuery]);
+
+  const fetchTransfers = async (page, query) => {
     try {
       const token = localStorage.getItem("token");
+      const endpoint = query?.trim()
+        ? `/search?q=${encodeURIComponent(query.trim())}&page=${page}&limit=${limit}`
+        : `/user?page=${page}&limit=${limit}`;
       const response = await fetch(
         `${
           import.meta.env.VITE_BACKEND_API
-        }/transfer/user?page=${page}&limit=${limit}`,
+        }/transfer${endpoint}`,
         {
           method: "GET",
           headers: {
@@ -34,23 +52,11 @@ function TransferList() {
       );
       const result = await response.json();
       setData(result.data || []);
-      setFilteredData(result.data || []);
       setTotalPages(result.totalPages || 1);
     } catch (error) {
       console.error("Error fetching data:", error);
     }
   };
-
-
-  useEffect(() => {
-    const filtered = data.filter(
-      (item) =>
-        item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.phone.toLowerCase().includes(searchQuery.toLowerCase())
-    );
-    setFilteredData(filtered);
-  }, [searchQuery, data]);
 
   const deleteCallBack = async (id) => {
     try {
@@ -117,7 +123,7 @@ function TransferList() {
             </tr>
           </thead>
           <tbody>
-            {filteredData.map((item, index) => (
+            {data.map((item, index) => (
               <tr key={index} className="text-[13px] text-gray-500 text-center">
                 <td className="border px-3 py-2">
                   {moment(item.createdAt).format("YYYY-MM-DD")}

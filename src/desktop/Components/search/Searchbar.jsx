@@ -16,10 +16,11 @@ function Searchbar() {
   const navigate=useNavigate();
   
   useEffect(() => {
-    onNotificationReceived((notification) => {
+    const unsubscribe = onNotificationReceived((notification) => {
       setNotification((prev) => [notification, ...prev]); // Add new notification
       setUnreadCount((prev) => prev + 1); // Increase unread count
     });
+    return () => unsubscribe();
   }, []);
  
   const toggleSidebar = () => {
@@ -33,6 +34,32 @@ function Searchbar() {
   navigate("/login", { replace: true }); 
   }
 
+
+  const handleNotification = (notify) => {
+    if (!notify) return;
+    if (notify.type === "CONCERN" || notify.type === "CONCERN_STATUS") {
+      navigate("/concern");
+      return;
+    }
+    if (notify.type === "DM") {
+      if (!notify.sender) return;
+      navigate("/chat", {
+        state: {
+          name: notify?.name,
+          id: notify?.sender,
+        },
+      });
+      return;
+    }
+    if (!notify.sender) return;
+    navigate("/channelchat", {
+      state: {
+        name: notify?.title,
+        description: notify?.description,
+        id: notify?.sender,
+      },
+    });
+  };
 
   const removeNotification=(index)=>{
     setNotification(notification.filter((_, i) => i !== index));
@@ -103,7 +130,11 @@ function Searchbar() {
         <div className="mt-4 space-y-3">
       {notification.length > 0 ? (
         notification.map((notify, i) => (
-          <div key={i} className="p-3 border border-gray-300 rounded-lg shadow-sm hover:bg-gray-100 transition flex justify-between items-center">
+          <div
+            key={i}
+            className="p-3 border border-gray-300 rounded-lg shadow-sm hover:bg-gray-100 transition flex justify-between items-center cursor-pointer"
+            onClick={() => handleNotification(notify)}
+          >
             <img src={logo} alt="" className="w-[40px]"/>
             <div >
             

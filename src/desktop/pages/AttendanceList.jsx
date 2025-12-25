@@ -4,9 +4,12 @@ import moment from "moment";
 function AttendanceList() {
   const [attendance, setAttendance] = useState([]);
   const { fetchAttendance } = useAuth();
-  const lateCount=attendance.filter(item=>item.status==="Late").length;
-  const absentCount=attendance.filter(item=>item.workStatus==="Absent").length;
-  const halfCount=attendance.filter(item=>item.workStatus==="Half Day").length;
+  const lateCount = attendance.filter(item => item.status === "Late").length;
+  const absentCount = attendance.filter(item => item.workStatus === "Absent").length;
+  const halfCount = attendance.filter(item => item.workStatus === "Half Day").length;
+  const weekOffCount = attendance.filter(
+    item => item.workStatus === "Week-Off" || item.workStatus === "Weekend"
+  ).length;
   const [range,setRange]=useState("this_month")
 
   const getAddentanceData = async () => {
@@ -51,6 +54,9 @@ function AttendanceList() {
         </button>
         <button className="border border-gray-500 px-5 rounded-sm text-[12px] font-medium ">
           Half Day:{halfCount}
+        </button>
+        <button className="border border-gray-500 px-5 rounded-sm text-[12px] font-medium ">
+          Week-Off:{weekOffCount}
         </button>
       </div>
       <div className="overflow-y-auto max-h-[370px] border border-gray-300 rounded-md mt-3">
