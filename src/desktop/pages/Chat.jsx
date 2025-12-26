@@ -261,6 +261,13 @@ const Chat = () => {
   };
   const isSending = loading || uploading;
 
+  const formatDateLabel = (value) => {
+    const day = moment(value);
+    if (day.isSame(moment(), "day")) return "Today";
+    if (day.isSame(moment().subtract(1, "day"), "day")) return "Yesterday";
+    return day.format("DD MMM YYYY");
+  };
+
   const handleReplySelect = (msg) => {
     if (!msg?._id) return;
     const senderName = String(msg.sender) === String(senderId) ? "You" : user?.name || "User";
@@ -310,86 +317,103 @@ const Chat = () => {
           const isSelf = String(msg.sender) === String(senderId);
           const senderLabel = isSelf ? "You" : user?.name || "Unknown";
           const replyContext = getReplyContext(msg);
+          const currentDay = moment(msg.createdAt).format("YYYY-MM-DD");
+          const previousDay =
+            index > 0 ? moment(messages[index - 1]?.createdAt).format("YYYY-MM-DD") : null;
+          const showDateDivider = index === 0 || currentDay !== previousDay;
           return (
-            <div
-              key={msg._id || index}
-              ref={(el) => {
-                if (msg?._id && el) {
-                  messageRefs.current[msg._id] = el;
-                }
-              }}
-              className={`p-2 rounded-lg mb-2 flex justify-between gap-2 w-fit max-w-[75%] min-w-[140px]
-                ${isSelf
-                  ? "bg-gradient-to-r from-orange-500 to-orange-400 text-white ml-auto"
-                  : "bg-gradient-to-l from-gray-500 to-gray-700 text-white"
-                } ${highlightedId === msg._id ? "ring-2 ring-orange-200" : ""}`}
-            >
-              <div className="flex flex-col gap-1">
-                <span className="text-[10px] font-semibold opacity-80 truncate max-w-[220px]" title={senderLabel}>
-                  {senderLabel}
-                </span>
-                {replyContext && (
+            <div key={msg._id || index}>
+              {showDateDivider && (
+                <div className="flex justify-center my-2">
+                  <span className="px-3 py-1 rounded-full bg-gray-200 text-gray-600 text-[11px]">
+                    {formatDateLabel(msg.createdAt)}
+                  </span>
+                </div>
+              )}
+              <div
+                ref={(el) => {
+                  if (msg?._id && el) {
+                    messageRefs.current[msg._id] = el;
+                  }
+                }}
+                className={`p-2 rounded-lg mb-2 flex justify-between gap-2 w-fit max-w-[75%] min-w-[140px]
+                  ${isSelf
+                    ? "bg-gradient-to-r from-orange-500 to-orange-400 text-white ml-auto"
+                    : "bg-gradient-to-l from-gray-500 to-gray-700 text-white"
+                  } ${highlightedId === msg._id ? "ring-2 ring-orange-200" : ""}`}
+              >
+                <div className="flex flex-col gap-1">
+                  <span className="text-[10px] font-semibold opacity-80 truncate max-w-[220px]" title={senderLabel}>
+                    {senderLabel}
+                  </span>
+                  {replyContext && (
+                    <button
+                      type="button"
+                      onClick={() => scrollToMessage(replyContext.id)}
+                      className={`mb-1 px-2 py-1 rounded border-l-4 text-left ${
+                        isSelf ? "bg-white/20 border-white/60" : "bg-white/10 border-white/30"
+                      } ${replyContext.id ? "cursor-pointer" : "cursor-default"}`}
+                      disabled={!replyContext.id}
+                    >
+                      <p
+                        className="text-[10px] font-semibold truncate max-w-[220px]"
+                        title={replyContext.senderName}
+                      >
+                        {replyContext.senderName}
+                      </p>
+                      <p className="text-[10px] truncate" title={replyContext.message}>
+                        {replyContext.message}
+                      </p>
+                    </button>
+                  )}
+                  {isImage(msg.message) ? (
+                    <>
+                      <img src={msg.message} alt="Sent" className="w-45 h-auto rounded-lg" />
+                      <button
+                        onClick={() => downloadImage(msg.message)}
+                        className="px-2 py-1 bg-blue-000 text-white text-xs rounded-full text-center mt-1 self-start shadow-md"
+                      >
+                        Download
+                      </button>
+                    </>
+                  ) : isLikelyAttachment(msg.message) ? (
+                    <div className="flex items-center gap-2 bg-gray-200 text-black p-2 rounded-lg">
+                      <span className="truncate w-32">{getFileNameFromUrl(msg.message)}</span>
+                      <button
+                        onClick={() => downloadFile(msg.message)}
+                        className="px-2 py-1 bg-blue-500 text-white text-xs rounded-full text-center mt-1 self-start shadow-md"
+                      >
+                        Download
+                      </button>
+                    </div>
+                  ) : msg.message.startsWith("http") ? (
+                    <a
+                      href={msg.message}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline break-words text-blue-300 break-all"
+                    >
+                      {msg.message}
+                    </a>
+                  ) : (
+                    <span className="whitespace-pre-wrap break-words overflow-auto">{msg.message}</span>
+                  )}
+                </div>
+                <div className="flex flex-col items-end justify-between">
                   <button
                     type="button"
-                    onClick={() => scrollToMessage(replyContext.id)}
-                    className={`mb-1 px-2 py-1 rounded border-l-4 text-left ${
-                      isSelf ? "bg-white/20 border-white/60" : "bg-white/10 border-white/30"
-                    } ${replyContext.id ? "cursor-pointer" : "cursor-default"}`}
-                    disabled={!replyContext.id}
+                    onClick={() => handleReplySelect(msg)}
+                    className="text-white/80 hover:text-white"
                   >
-                    <p
-                      className="text-[10px] font-semibold truncate max-w-[220px]"
-                      title={replyContext.senderName}
-                    >
-                      {replyContext.senderName}
-                    </p>
-                    <p className="text-[10px] truncate" title={replyContext.message}>
-                      {replyContext.message}
-                    </p>
+                    <CornerUpLeft className="w-3 h-3" />
                   </button>
-                )}
-                {isImage(msg.message) ? (
-                  <>
-                    <img src={msg.message} alt="Sent" className="w-45 h-auto rounded-lg" />
-                    <button
-                      onClick={() => downloadImage(msg.message)}
-                      className="px-2 py-1 bg-blue-000 text-white text-xs rounded-full text-center mt-1 self-start shadow-md"
-                    >
-                      Download
-                    </button>
-                  </>
-                ) : isLikelyAttachment(msg.message) ? (
-                  <div className="flex items-center gap-2 bg-gray-200 text-black p-2 rounded-lg">
-                    <span className="truncate w-32">{getFileNameFromUrl(msg.message)}</span>
-                    <button
-                      onClick={() => downloadFile(msg.message)}
-                      className="px-2 py-1 bg-blue-500 text-white text-xs rounded-full text-center mt-1 self-start shadow-md"
-                    >
-                      Download
-                    </button>
-                  </div>
-                ) : msg.message.startsWith("http") ? (
-                  <a
-                    href={msg.message}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="underline break-words text-blue-300 break-all"
+                  <span
+                    className="text-[9px] flex flex-col justify-end"
+                    title={moment(msg.createdAt).format("DD MMM YYYY, HH:mm")}
                   >
-                    {msg.message}
-                  </a>
-                ) : (
-                  <span className="whitespace-pre-wrap break-words overflow-auto">{msg.message}</span>
-                )}
-              </div>
-              <div className="flex flex-col items-end justify-between">
-                <button
-                  type="button"
-                  onClick={() => handleReplySelect(msg)}
-                  className="text-white/80 hover:text-white"
-                >
-                  <CornerUpLeft className="w-3 h-3" />
-                </button>
-                <span className="text-[9px] flex flex-col justify-end">{moment(msg.createdAt).format("HH:mm")}</span>
+                    {moment(msg.createdAt).format("HH:mm")}
+                  </span>
+                </div>
               </div>
             </div>
           );
