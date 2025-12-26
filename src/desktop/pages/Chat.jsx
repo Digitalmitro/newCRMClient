@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 import axios from "axios";
-import { Send, Paperclip } from "lucide-react";
+import { Send, Paperclip, CornerUpLeft, X } from "lucide-react";
 import { useLocation } from "react-router-dom";
 import {
   sendMessage,
@@ -27,11 +27,15 @@ const Chat = () => {
   const [input, setInput] = useState("");
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const messagesEndRef = useRef(null);
+  const messageRefs = useRef({});
+  const highlightTimerRef = useRef(null);
   const fileInputRef = useRef(null);
   const [file, setFile] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [loading, setloading] = useState(false);
   const [filePreviewUrl, setFilePreviewUrl] = useState(null);
+  const [replyTarget, setReplyTarget] = useState(null);
+  const [highlightedId, setHighlightedId] = useState(null);
   const authHeader = { Authorization: `Bearer ${localStorage.getItem("token")}` };
 
   const markMessagesAsRead = async (senderId) => {
@@ -51,6 +55,19 @@ const Chat = () => {
       markMessagesAsRead(receiverId);
     }
   }, [receiverId]);
+
+  useEffect(() => {
+    setReplyTarget(null);
+    setHighlightedId(null);
+  }, [receiverId]);
+
+  useEffect(() => {
+    return () => {
+      if (highlightTimerRef.current) {
+        clearTimeout(highlightTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     connectSocket();
@@ -185,6 +202,7 @@ const Chat = () => {
       sender: senderId,
       receiver: receiverId,
       message: messageContent,
+      replyTo: replyTarget?.id || null,
       createdAt: new Date(),
     };
 
@@ -192,6 +210,7 @@ const Chat = () => {
       await axios.post(`${import.meta.env.VITE_BACKEND_API}/message/send-message`, newMessage);
       sendMessage(senderId, receiverId, messageContent);
       setInput("");
+      setReplyTarget(null);
     } catch (error) {
       console.error("Error sending message:", error);
     }
@@ -209,6 +228,31 @@ const Chat = () => {
   const isDocument = (url) => /\.(pdf|docx|doc|xlsx|xls|pptx|ppt|csv|txt|zip|rar)$/i.test(url);
   const isLikelyAttachment = (url) =>
     url?.startsWith("http") && (isImage(url) || isDocument(url) || url.includes("cloudinary"));
+  const getMessagePreview = (value) => {
+    if (!value) return "";
+    if (value.startsWith("http")) {
+      if (isImage(value)) return "Photo";
+      if (isDocument(value)) return `Document: ${getFileNameFromUrl(value)}`;
+      return "Link";
+    }
+    return value.length > 80 ? `${value.slice(0, 80)}...` : value;
+  };
+  const getReplyContext = (msg) => {
+    if (!msg?.replyTo && !msg?.replyPreview?.message) return null;
+    if (msg?.replyPreview?.message) {
+      const senderName =
+        msg.replyPreview.senderName ||
+        (String(msg.replyPreview.sender) === String(senderId) ? "You" : user?.name || "User");
+      return { senderName, message: msg.replyPreview.message, id: msg.replyTo };
+    }
+    if (!msg?.replyTo) return null;
+    const original = messages.find((item) => item._id === msg.replyTo);
+    if (!original) {
+      return { senderName: "Unknown", message: "Original message not available", id: msg.replyTo };
+    }
+    const senderName = String(original.sender) === String(senderId) ? "You" : user?.name || "User";
+    return { senderName, message: getMessagePreview(original.message), id: msg.replyTo };
+  };
   const formatFileSize = (size) => {
     if (!size) return "";
     const kb = size / 1024;
@@ -216,6 +260,29 @@ const Chat = () => {
     return `${(kb / 1024).toFixed(1)} MB`;
   };
   const isSending = loading || uploading;
+
+  const handleReplySelect = (msg) => {
+    if (!msg?._id) return;
+    const senderName = String(msg.sender) === String(senderId) ? "You" : user?.name || "User";
+    setReplyTarget({
+      id: msg._id,
+      senderName,
+      message: getMessagePreview(msg.message),
+    });
+  };
+  const scrollToMessage = (id) => {
+    if (!id) return;
+    const target = messageRefs.current[id];
+    if (!target) return;
+    target.scrollIntoView({ behavior: "smooth", block: "center" });
+    setHighlightedId(id);
+    if (highlightTimerRef.current) {
+      clearTimeout(highlightTimerRef.current);
+    }
+    highlightTimerRef.current = setTimeout(() => {
+      setHighlightedId((current) => (current === id ? null : current));
+    }, 1200);
+  };
 
   return (
     <div className="p-0 lg:p-4 w-full flex flex-col h-[calc(100vh-110px)] lg:h-[calc(100vh-60px)]">
@@ -228,12 +295,13 @@ const Chat = () => {
           <p className="text-[10px] text-green-500 font-semibold">{isOnline ? "Online" : "Offline"}</p>
         </div>
         <div className="ml-auto">
-          <button
+          {/* TODO: Re-enable Clear chat when we finalize this feature. */}
+          {/* <button
             onClick={handleClearChat}
             className="text-xs px-3 py-1 border border-gray-300 rounded-full hover:bg-gray-100"
           >
             Clear chat
-          </button>
+          </button> */}
         </div>
       </div>
 
@@ -241,20 +309,45 @@ const Chat = () => {
         {messages.map((msg, index) => {
           const isSelf = String(msg.sender) === String(senderId);
           const senderLabel = isSelf ? "You" : user?.name || "Unknown";
+          const replyContext = getReplyContext(msg);
           return (
             <div
-              key={index}
-              className={`p-2 max-w-xs rounded-lg mb-2 flex justify-between gap-2 
+              key={msg._id || index}
+              ref={(el) => {
+                if (msg?._id && el) {
+                  messageRefs.current[msg._id] = el;
+                }
+              }}
+              className={`p-2 rounded-lg mb-2 flex justify-between gap-2 w-fit max-w-[75%] min-w-[140px]
                 ${isSelf
                   ? "bg-gradient-to-r from-orange-500 to-orange-400 text-white ml-auto"
                   : "bg-gradient-to-l from-gray-500 to-gray-700 text-white"
-                }`}
-              style={{
-                width: `${msg.message.length <= 5 ? 90 : Math.min((msg.message?.length ?? 0) * 15, 300)}px`,
-              }}
+                } ${highlightedId === msg._id ? "ring-2 ring-orange-200" : ""}`}
             >
               <div className="flex flex-col gap-1">
-                <span className="text-[10px] font-semibold opacity-80">{senderLabel}</span>
+                <span className="text-[10px] font-semibold opacity-80 truncate max-w-[220px]" title={senderLabel}>
+                  {senderLabel}
+                </span>
+                {replyContext && (
+                  <button
+                    type="button"
+                    onClick={() => scrollToMessage(replyContext.id)}
+                    className={`mb-1 px-2 py-1 rounded border-l-4 text-left ${
+                      isSelf ? "bg-white/20 border-white/60" : "bg-white/10 border-white/30"
+                    } ${replyContext.id ? "cursor-pointer" : "cursor-default"}`}
+                    disabled={!replyContext.id}
+                  >
+                    <p
+                      className="text-[10px] font-semibold truncate max-w-[220px]"
+                      title={replyContext.senderName}
+                    >
+                      {replyContext.senderName}
+                    </p>
+                    <p className="text-[10px] truncate" title={replyContext.message}>
+                      {replyContext.message}
+                    </p>
+                  </button>
+                )}
                 {isImage(msg.message) ? (
                   <>
                     <img src={msg.message} alt="Sent" className="w-45 h-auto rounded-lg" />
@@ -288,7 +381,16 @@ const Chat = () => {
                   <span className="whitespace-pre-wrap break-words overflow-auto">{msg.message}</span>
                 )}
               </div>
-              <span className="text-[9px] flex flex-col justify-end">{moment(msg.createdAt).format("HH:mm")}</span>
+              <div className="flex flex-col items-end justify-between">
+                <button
+                  type="button"
+                  onClick={() => handleReplySelect(msg)}
+                  className="text-white/80 hover:text-white"
+                >
+                  <CornerUpLeft className="w-3 h-3" />
+                </button>
+                <span className="text-[9px] flex flex-col justify-end">{moment(msg.createdAt).format("HH:mm")}</span>
+              </div>
             </div>
           );
         })}
@@ -300,6 +402,24 @@ const Chat = () => {
         </div>
       )}
       <div className="p-3 lg:p-4 bg-white border-t w-full sticky bottom-0 left-0 right-0 z-10">
+        {replyTarget && (
+          <div className="mb-2 flex items-center gap-3 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2">
+            <div className="flex-1 min-w-0">
+              <p className="text-[10px] font-semibold text-orange-700">
+                Replying to {replyTarget.senderName}
+              </p>
+              <p className="text-[11px] text-gray-600 truncate">{replyTarget.message}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setReplyTarget(null)}
+              className="text-gray-500 hover:text-gray-700"
+              aria-label="Cancel reply"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
         {file && (
           <div className="mb-2 flex items-center gap-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
             {filePreviewUrl ? (
