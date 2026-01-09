@@ -110,7 +110,7 @@ function Sidebarpart() {
         </div>
       </div>
 
-      <div className="bg-gray-200 w-[250px] p-4 border border-orange-400 h-screen overflow-y-auto">
+      <div className="bg-gray-200 w-[250px] p-4 border border-orange-400 h-screen flex flex-col overflow-hidden">
         <div className="flex justify-between items-center pt-4 mb-4">
           <h2 className="text-[18px] font-medium   flex gap-2">
             {userData?.name}
@@ -119,83 +119,85 @@ function Sidebarpart() {
           <img src={edit} alt="" className="w-[10px] h-[10px]" />
         </div>
 
-        {/* Channels Section */}
-        <div className="mb-4 pt-8">
-          <h3 className="text-[15px] font-bold text-gray-600 flex gap-2">
-            Channels <img src={arrow} alt="" className="w-[8px] pt-1" />
-          </h3>
-          <ul className="mt-2">
-            {channels?.map((channel) => (
-              <li key={channel._id}>
-                <p
-                  className="block p-2 text-gray-700 font-medium text-[14px] cursor-pointer"
-                  onClick={() => handleChannelChat(channel.name, channel._id)}
-                >
-                  <p className="flex space-x-2">
-                    <span
-                      className="border items-center  flex justify-center w-5 h-5 text-[12px] font-medium text-white"
-                      style={{
-                        backgroundColor: getStableColor(channel?.name),
-                      }}
-                    >
-                      {channel?.name?.charAt(0).toUpperCase()}
-                    </span>
-                    <span>{channel.name}</span>
-                  </p>
-                </p>
-              </li>
-            ))}
-            {/* <li>
-              <p
-                className="block p-2 text-gray-700 text-[13px] cursor-pointer"
-                onClick={handleChannel}
-              >
-                + Add Channels
-              </p>
-            </li> */}
-          </ul>
-        </div>
-
-        {/* Messages Section */}
-        <div className="mb-4">
-          <h3 className="text-[15px] font-bold text-gray-600 flex gap-2">
-            Messages <img src={arrow} alt="" className="w-[8px] pt-1" />
-          </h3>
-          <ul className="mt-2 max-h-[260px] overflow-y-auto pr-1 hide-scrollbar">
-            {employees
-              ?.filter((user) => user.lastMessageTime)
-              .map((user, i) => (
-                <li
-                  key={i}
-                  className="block p-2 text-gray-700 text-[14px] font-medium cursor-pointer"
-                  onClick={() => handleChat(user.name, user.id)}
-                >
-                  <p className="flex space-x-2">
-                    <span
-                      className="border items-center  flex justify-center w-5 h-5 text-[12px] font-medium text-white"
-                      style={{
-                        backgroundColor: getStableColor(user?.name),
-                      }}
-                    >
-                      {user?.name?.charAt(0).toUpperCase()}
-                    </span>
-                    <span>{user?.name}</span>
-                    {unreadMessages[user.id] > 0 && openChatId !== user.id && (
-                      <span className="text-green-500 font-bold">
-                        ({unreadMessages[user.id]})
+        <div className="flex flex-col gap-4 flex-1 min-h-0">
+          {/* Channels Section */}
+          <div className="pt-4 flex-none">
+            <h3 className="text-[15px] font-bold text-gray-600 flex gap-2">
+              Channels <img src={arrow} alt="" className="w-[8px] pt-1" />
+            </h3>
+            <ul className="mt-2 max-h-[160px] overflow-y-auto hide-scrollbar">
+              {channels?.map((channel) => (
+                <li key={channel._id}>
+                  <p
+                    className="block p-2 text-gray-700 font-medium text-[14px] cursor-pointer"
+                    onClick={() => handleChannelChat(channel.name, channel._id)}
+                  >
+                    <p className="flex space-x-2">
+                      <span
+                        className="border items-center  flex justify-center w-5 h-5 text-[12px] font-medium text-white"
+                        style={{
+                          backgroundColor: getStableColor(channel?.name),
+                        }}
+                      >
+                        {channel?.name?.charAt(0).toUpperCase()}
                       </span>
-                    )}
+                      <span>{channel.name}</span>
+                    </p>
                   </p>
                 </li>
               ))}
-          </ul>
-          <button
-            type="button"
-            className="block p-2 text-gray-700 text-[15px] cursor-pointer"
-            onClick={handleCowrokers}
-          >
-            + Add Coworker
-          </button>
+              {/* <li>
+                <p
+                  className="block p-2 text-gray-700 text-[13px] cursor-pointer"
+                  onClick={handleChannel}
+                >
+                  + Add Channels
+                </p>
+              </li> */}
+            </ul>
+          </div>
+
+          {/* Messages Section */}
+          <div className="flex flex-col flex-1 min-h-0">
+            <h3 className="text-[15px] font-bold text-gray-600 flex gap-2">
+              Messages <img src={arrow} alt="" className="w-[8px] pt-1" />
+            </h3>
+            <ul className="mt-2 flex-1 min-h-0 overflow-y-auto pr-1 hide-scrollbar">
+              {employees
+                ?.filter((user) => user.lastMessageTime)
+                .map((user, i) => (
+                  <li
+                    key={i}
+                    className="block p-2 text-gray-700 text-[14px] font-medium cursor-pointer"
+                    onClick={() => handleChat(user.name, user.id)}
+                  >
+                    <p className="flex space-x-2">
+                      <span
+                        className="border items-center  flex justify-center w-5 h-5 text-[12px] font-medium text-white"
+                        style={{
+                          backgroundColor: getStableColor(user?.name),
+                        }}
+                      >
+                        {user?.name?.charAt(0).toUpperCase()}
+                      </span>
+                      <span>{user?.name}</span>
+                      {unreadMessages[user.id] > 0 && openChatId !== user.id && (
+                        <span className="text-green-500 font-bold">
+                          ({unreadMessages[user.id]})
+                        </span>
+                      )}
+                    </p>
+                  </li>
+                ))}
+            </ul>
+            <button
+              type="button"
+              className="block p-2 text-gray-700 text-[15px] cursor-pointer"
+              onClick={handleCowrokers}
+            >
+              + Add Coworker
+            </button>
+          </div>
         </div>
       </div>
     </div>

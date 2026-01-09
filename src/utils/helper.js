@@ -10,11 +10,19 @@ export const getFileNameFromUrl = (url) => {
   if (!url) return "file";
   try {
     const parsed = new URL(url);
+    const nameParam = parsed.searchParams.get("filename") || parsed.searchParams.get("name");
+    if (nameParam) return safeDecode(nameParam);
     const name = parsed.pathname.split("/").pop();
     return safeDecode(name || "file");
   } catch (error) {
-    const name = url.split("/").pop() || "file";
-    return safeDecode(name.split("?")[0]);
+    const [pathPart, queryPart] = url.split("?");
+    if (queryPart) {
+      const params = new URLSearchParams(queryPart);
+      const nameParam = params.get("filename") || params.get("name");
+      if (nameParam) return safeDecode(nameParam);
+    }
+    const name = pathPart.split("/").pop() || "file";
+    return safeDecode(name);
   }
 };
 

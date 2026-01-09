@@ -157,6 +157,12 @@ const Chat = () => {
       return null;
     }
   };
+  const buildFileMessageUrl = (url, fileName) => {
+    if (!url || !fileName) return url;
+    if (url.includes("filename=")) return url;
+    const separator = url.includes("?") ? "&" : "?";
+    return `${url}${separator}filename=${encodeURIComponent(fileName)}`;
+  };
 
   const handleClearChat = async () => {
     if (!receiverId) return;
@@ -180,7 +186,9 @@ const Chat = () => {
     if (loading || uploading) return;
     if (!input.trim() && !file) return;
 
-    let messageContent = input.trim();
+    const draftInput = input.trim();
+    setInput("");
+    let messageContent = draftInput;
 
     if (file) {
       setloading(true);
@@ -190,7 +198,7 @@ const Chat = () => {
         setloading(false);
         return;
       }
-      messageContent = fileUrl.fileUrl;
+      messageContent = buildFileMessageUrl(fileUrl.fileUrl, file.name);
       setFile(null);
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
@@ -225,17 +233,81 @@ const Chat = () => {
   };
 
   const isImage = (url) => /\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(url);
+  const isVideo = (url) => /\.(mp4|webm|ogg|mov|mkv)$/i.test(url);
+  const isAudio = (url) => /\.(mp3|wav|ogg|m4a|aac)$/i.test(url);
+  const isPdf = (url) => /\.pdf$/i.test(url);
   const isDocument = (url) => /\.(pdf|docx|doc|xlsx|xls|pptx|ppt|csv|txt|zip|rar)$/i.test(url);
   const isLikelyAttachment = (url) =>
-    url?.startsWith("http") && (isImage(url) || isDocument(url) || url.includes("cloudinary"));
+    url?.startsWith("http") &&
+    (isImage(url) || isDocument(url) || isVideo(url) || isAudio(url) || url.includes("cloudinary"));
+  const getFileExtension = (url) => {
+    const fileName = getFileNameFromUrl(url);
+    const parts = fileName.split(".");
+    if (parts.length < 2) return "";
+    return parts.pop().toLowerCase();
+  };
   const getMessagePreview = (value) => {
     if (!value) return "";
     if (value.startsWith("http")) {
       if (isImage(value)) return "Photo";
+      if (isVideo(value)) return `Video: ${getFileNameFromUrl(value)}`;
+      if (isAudio(value)) return `Audio: ${getFileNameFromUrl(value)}`;
+      if (isPdf(value)) return `PDF: ${getFileNameFromUrl(value)}`;
       if (isDocument(value)) return `Document: ${getFileNameFromUrl(value)}`;
       return "Link";
     }
     return value.length > 80 ? `${value.slice(0, 80)}...` : value;
+  };
+  const renderAttachment = (url) => {
+    const fileName = getFileNameFromUrl(url);
+    const extension = getFileExtension(url);
+    const badge = extension ? extension.toUpperCase() : "FILE";
+    const metaRow = (
+      <div className="flex items-center gap-2 bg-white/90 text-gray-800 p-2 rounded-lg">
+        <span className="text-[10px] font-semibold bg-gray-200 text-gray-700 px-2 py-0.5 rounded">
+          {badge}
+        </span>
+        <span className="truncate w-32 text-[11px]" title={fileName}>
+          {fileName}
+        </span>
+        <button
+          onClick={() => downloadFile(url)}
+          className="px-2 py-1 bg-blue-500 text-white text-xs rounded-full text-center shrink-0 shadow-md"
+        >
+          Download
+        </button>
+      </div>
+    );
+
+    if (isVideo(url)) {
+      return (
+        <div className="flex flex-col gap-2">
+          <video src={url} controls preload="metadata" className="w-[220px] max-w-full rounded-md" />
+          {metaRow}
+        </div>
+      );
+    }
+    if (isAudio(url)) {
+      return (
+        <div className="flex flex-col gap-2">
+          <audio src={url} controls preload="metadata" className="w-[220px] max-w-full" />
+          {metaRow}
+        </div>
+      );
+    }
+    if (isPdf(url)) {
+      return (
+        <div className="flex flex-col gap-2">
+          <iframe
+            src={url}
+            title={fileName}
+            className="w-[220px] h-[160px] max-w-full rounded-md border border-gray-200 bg-white"
+          />
+          {metaRow}
+        </div>
+      );
+    }
+    return metaRow;
   };
   const getReplyContext = (msg) => {
     if (!msg?.replyTo && !msg?.replyPreview?.message) return null;
@@ -376,17 +448,9 @@ const Chat = () => {
                         Download
                       </button>
                     </>
-                  ) : isLikelyAttachment(msg.message) ? (
-                    <div className="flex items-center gap-2 bg-gray-200 text-black p-2 rounded-lg">
-                      <span className="truncate w-32">{getFileNameFromUrl(msg.message)}</span>
-                      <button
-                        onClick={() => downloadFile(msg.message)}
-                        className="px-2 py-1 bg-blue-500 text-white text-xs rounded-full text-center mt-1 self-start shadow-md"
-                      >
-                        Download
-                      </button>
-                    </div>
-                  ) : msg.message.startsWith("http") ? (
+                ) : isLikelyAttachment(msg.message) ? (
+                  renderAttachment(msg.message)
+                ) : msg.message.startsWith("http") ? (
                     <a
                       href={msg.message}
                       target="_blank"
