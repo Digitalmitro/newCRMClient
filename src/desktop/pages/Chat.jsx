@@ -272,7 +272,7 @@ const Chat = () => {
         </span>
         <button
           onClick={() => downloadFile(url)}
-          className="px-2 py-1 bg-blue-500 text-white text-xs rounded-full text-center shrink-0 shadow-md"
+          className="px-2 py-1 bg-slate-900 text-white text-xs rounded-full text-center shrink-0 shadow-md hover:bg-slate-800"
         >
           Download
         </button>
@@ -408,10 +408,10 @@ const Chat = () => {
                     messageRefs.current[msg._id] = el;
                   }
                 }}
-                className={`p-2 rounded-lg mb-2 flex justify-between gap-2 w-fit max-w-[75%] min-w-[140px]
+                className={`p-2 rounded-lg mb-2 flex justify-between gap-2 w-fit max-w-[75%] min-w-[140px] shadow-sm
                   ${isSelf
-                    ? "bg-gradient-to-r from-orange-500 to-orange-400 text-white ml-auto"
-                    : "bg-gradient-to-l from-gray-500 to-gray-700 text-white"
+                    ? "bg-orange-500 text-white ml-auto"
+                    : "bg-slate-100 text-slate-900 border border-slate-200"
                   } ${highlightedId === msg._id ? "ring-2 ring-orange-200" : ""}`}
               >
                 <div className="flex flex-col gap-1">
@@ -423,7 +423,9 @@ const Chat = () => {
                       type="button"
                       onClick={() => scrollToMessage(replyContext.id)}
                       className={`mb-1 px-2 py-1 rounded border-l-4 text-left ${
-                        isSelf ? "bg-white/20 border-white/60" : "bg-white/10 border-white/30"
+                        isSelf
+                          ? "bg-white/20 border-white/60"
+                          : "bg-slate-200/70 border-slate-300 text-slate-700"
                       } ${replyContext.id ? "cursor-pointer" : "cursor-default"}`}
                       disabled={!replyContext.id}
                     >
@@ -443,7 +445,7 @@ const Chat = () => {
                       <img src={msg.message} alt="Sent" className="w-45 h-auto rounded-lg" />
                       <button
                         onClick={() => downloadImage(msg.message)}
-                        className="px-2 py-1 bg-blue-000 text-white text-xs rounded-full text-center mt-1 self-start shadow-md"
+                        className="px-2 py-1 bg-slate-900 text-white text-xs rounded-full text-center mt-1 self-start shadow-md hover:bg-slate-800"
                       >
                         Download
                       </button>
@@ -451,26 +453,28 @@ const Chat = () => {
                 ) : isLikelyAttachment(msg.message) ? (
                   renderAttachment(msg.message)
                 ) : msg.message.startsWith("http") ? (
-                    <a
-                      href={msg.message}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="underline break-words text-blue-300 break-all"
-                    >
-                      {msg.message}
-                    </a>
+                  <a
+                    href={msg.message}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={`underline break-words break-all ${
+                      isSelf ? "text-white/90" : "text-blue-600"
+                    }`}
+                  >
+                    {msg.message}
+                  </a>
                   ) : (
                     <span className="whitespace-pre-wrap break-words overflow-auto">{msg.message}</span>
                   )}
                 </div>
                 <div className="flex flex-col items-end justify-between">
-                  <button
-                    type="button"
-                    onClick={() => handleReplySelect(msg)}
-                    className="text-white/80 hover:text-white"
-                  >
-                    <CornerUpLeft className="w-3 h-3" />
-                  </button>
+                <button
+                  type="button"
+                  onClick={() => handleReplySelect(msg)}
+                  className={isSelf ? "text-white/80 hover:text-white" : "text-slate-500 hover:text-slate-700"}
+                >
+                  <CornerUpLeft className="w-3 h-3" />
+                </button>
                   <span
                     className="text-[9px] flex flex-col justify-end"
                     title={moment(msg.createdAt).format("DD MMM YYYY, HH:mm")}
@@ -583,3 +587,4 @@ const Chat = () => {
 };
 
 export default Chat;
+

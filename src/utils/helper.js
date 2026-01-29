@@ -26,6 +26,34 @@ export const getFileNameFromUrl = (url) => {
   }
 };
 
+const extensionFromContentType = (contentType = "") => {
+  const type = contentType.toLowerCase();
+  if (type.includes("pdf")) return "pdf";
+  if (type.includes("csv")) return "csv";
+  if (type.includes("msword")) return "doc";
+  if (type.includes("officedocument.wordprocessingml")) return "docx";
+  if (type.includes("officedocument.spreadsheetml")) return "xlsx";
+  if (type.includes("officedocument.presentationml")) return "pptx";
+  if (type.includes("vnd.ms-excel")) return "xls";
+  if (type.includes("vnd.ms-powerpoint")) return "ppt";
+  if (type.includes("zip")) return "zip";
+  if (type.includes("rar")) return "rar";
+  if (type.includes("text/plain")) return "txt";
+  if (type.startsWith("image/")) return type.split("/")[1] || "";
+  if (type.startsWith("audio/")) return type.split("/")[1] || "";
+  if (type.startsWith("video/")) return type.split("/")[1] || "";
+  return "";
+};
+
+const ensureExtension = (name, contentType) => {
+  if (!name) return name;
+  const trimmed = name.split("?")[0];
+  if (trimmed.includes(".")) return name;
+  const ext = extensionFromContentType(contentType);
+  if (!ext) return name;
+  return `${name}.${ext}`;
+};
+
 const getDownloadUrl = (url) => {
   if (!url) return url;
   if (url.includes("cloudinary")) {
@@ -48,7 +76,9 @@ export const downloadFile = async (url, fallbackName) => {
     const disposition = response.headers.get("content-disposition") || "";
     const match = disposition.match(/filename="?([^"]+)"?/i);
     const headerName = match?.[1];
-    const fileName = headerName || fallbackName || getFileNameFromUrl(url);
+    const contentType = response.headers.get("content-type") || "";
+    const rawName = headerName || fallbackName || getFileNameFromUrl(url);
+    const fileName = ensureExtension(rawName, contentType);
 
     const a = document.createElement("a");
     a.href = blobUrl;
