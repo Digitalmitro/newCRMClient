@@ -458,7 +458,7 @@ const ChannelChat = () => {
                 }}
                 className={`p-2 rounded-lg mb-2 flex justify-between gap-2 w-fit max-w-[75%] min-w-[140px] shadow-sm
                         ${isSelf
-                    ? "bg-orange-500 text-white ml-auto"
+                    ? "bg-[#FFFBDC] text-slate-900 border border-[#f2dba0] ml-auto"
                     : "bg-slate-100 text-slate-900 border border-slate-200"
                   } ${highlightedId === msg._id ? "ring-2 ring-orange-200" : ""}`}
               >
@@ -472,7 +472,7 @@ const ChannelChat = () => {
                       onClick={() => scrollToMessage(replyContext.id)}
                       className={`mb-1 px-2 py-1 rounded border-l-4 text-left ${
                         isSelf
-                          ? "bg-white/20 border-white/60"
+                          ? "bg-[#F7EFC7] border-[#e5cf8b]"
                           : "bg-slate-200/70 border-slate-300 text-slate-700"
                       } ${replyContext.id ? "cursor-pointer" : "cursor-default"}`}
                       disabled={!replyContext.id}
@@ -525,7 +525,7 @@ const ChannelChat = () => {
                     <button
                       type="button"
                       onClick={() => handleReplySelect(msg)}
-                      className={isSelf ? "text-white/80 hover:text-white" : "text-slate-500 hover:text-slate-700"}
+                      className={"text-slate-500 hover:text-slate-700"}
                     >
                     <CornerUpLeft className="w-3 h-3" />
                   </button>
@@ -642,4 +642,5 @@ const ChannelChat = () => {
 };
 
 export default ChannelChat;
+
 
