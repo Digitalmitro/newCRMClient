@@ -14,10 +14,12 @@ import {
 } from "../../utils/socket"; // Socket functions
 import axios from "axios";
 import { downloadFile, downloadImage, getFileNameFromUrl } from "../../utils/helper";
+import ChannelTaskManager from "../Components/Channel/ChannelTaskManager";
 const ChannelChat = () => {
   const { userData } = useAuth();
   const location = useLocation();
   const groupUsers = location.state;
+  const channelId = groupUsers?.id;
   const senderId = userData?.userId;
   const [messages, setMessages] = useState([]);
   const [channelInfo, setChannelsInfo] = useState();
@@ -31,6 +33,10 @@ const ChannelChat = () => {
   const [loading, setloading] = useState(false);
   const [replyTarget, setReplyTarget] = useState(null);
   const [highlightedId, setHighlightedId] = useState(null);
+  const [activeTab, setActiveTab] = useState(
+    location?.state?.openTasks ? "tasks" : "chat"
+  );
+  const [createTaskModalSignal, setCreateTaskModalSignal] = useState(0);
   const messagesEndRef = useRef(null);
   const messageRefs = useRef({});
   const highlightTimerRef = useRef(null);
@@ -41,9 +47,10 @@ const ChannelChat = () => {
   // console.log(channelInfo);
 
   const fetchChannelsInfo = async () => {
+    if (!channelId) return;
     try {
       const res = await axios.get(
-        `${import.meta.env.VITE_BACKEND_API}/api/${groupUsers.id}`
+        `${import.meta.env.VITE_BACKEND_API}/api/${channelId}`
       );
       setChannelsInfo(res.data);
     } catch (error) {
@@ -53,10 +60,11 @@ const ChannelChat = () => {
 
   // ✅ Fetch channel messages when component mounts
   useEffect(() => {
+    if (!channelId) return;
     const fetchMessages = async () => {
       try {
         const res = await axios.get(
-          `${import.meta.env.VITE_BACKEND_API}/channels/${groupUsers.id}`
+          `${import.meta.env.VITE_BACKEND_API}/channels/${channelId}`
         );
         setMessages(res.data.messages);
       } catch (error) {
@@ -65,14 +73,15 @@ const ChannelChat = () => {
     };
 
     fetchMessages();
-    joinChannel(groupUsers.id);
+    joinChannel(channelId);
     fetchChannelsInfo();
-  }, [groupUsers.id]);
+  }, [channelId]);
 
   useEffect(() => {
     setReplyTarget(null);
     setHighlightedId(null);
-  }, [groupUsers?.id]);
+    setActiveTab(location?.state?.openTasks ? "tasks" : "chat");
+  }, [channelId, location?.state?.openTasks]);
 
   useEffect(() => {
     return () => {
@@ -84,8 +93,9 @@ const ChannelChat = () => {
 
   // ✅ Listen for new messages via Socket.io
   useEffect(() => {
+    if (!channelId) return;
     const unsubscribe = onChannelMessageReceived((msg) => {
-      if (String(msg?.channelId) !== String(groupUsers?.id)) return;
+      if (String(msg?.channelId) !== String(channelId)) return;
       setMessages((prevMessages) => {
         if (msg?._id && prevMessages.some((item) => item._id === msg._id)) {
           return prevMessages;
@@ -95,11 +105,24 @@ const ChannelChat = () => {
     });
 
     return unsubscribe;
-  }, [groupUsers?.id]);
+  }, [channelId]);
+
+  const scrollToLatestMessage = (behavior = "smooth") => {
+    messagesEndRef.current?.scrollIntoView({ behavior, block: "end" });
+  };
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+    if (activeTab !== "chat") return;
+    scrollToLatestMessage("smooth");
+  }, [messages, activeTab]);
+
+  useEffect(() => {
+    if (activeTab !== "chat") return;
+    const timer = setTimeout(() => {
+      scrollToLatestMessage("auto");
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [activeTab]);
 
   useEffect(() => {
     if (!file) {
@@ -167,7 +190,7 @@ const ChannelChat = () => {
     }
     const newMessage = {
       sender: senderId, // Replace with actual user ID
-      channelId: groupUsers.id,
+      channelId: channelId,
       message: messageContent,
       replyTo: replyTarget?.id || null,
       createdAt: new Date(),
@@ -318,7 +341,11 @@ const ChannelChat = () => {
       return { senderName: "Unknown", message: "Original message not available", id: msg.replyTo };
     }
     const senderName =
-      String(original.sender) === String(senderId) ? "You" : getSenderName(String(original.sender));
+      original?.isSystem
+        ? original.systemLabel || "System"
+        : String(original.sender) === String(senderId)
+        ? "You"
+        : getSenderName(String(original.sender));
     return { senderName, message: getMessagePreview(original.message), id: msg.replyTo };
   };
   const formatFileSize = (size) => {
@@ -339,7 +366,11 @@ const ChannelChat = () => {
   const handleReplySelect = (msg) => {
     if (!msg?._id) return;
     const senderName =
-      String(msg.sender) === String(senderId) ? "You" : getSenderName(String(msg.sender));
+      msg?.isSystem
+        ? msg.systemLabel || "System"
+        : String(msg.sender) === String(senderId)
+        ? "You"
+        : getSenderName(String(msg.sender));
     setReplyTarget({
       id: msg._id,
       senderName,
@@ -359,82 +390,140 @@ const ChannelChat = () => {
       setHighlightedId((current) => (current === id ? null : current));
     }, 1200);
   };
+  const channelDisplayName = groupUsers?.name || channelInfo?.name || "Channel";
+
+  if (!channelId) {
+    return (
+      <div className="p-4 text-sm text-gray-500">
+        Channel not found. Please open it from the channel list.
+      </div>
+    );
+  }
   return (
     <div className="p-0 lg:p-4 w-full flex flex-col h-[calc(100vh-110px)] lg:h-[calc(100vh-60px)]">
       {/* Header */}
-      <div className="flex justify-between items-center mb-4 lg:mb-6 border-b pt-2 px-3 lg:px-8 pb-2 w-full">
-        <div className="flex gap-4">
-          <div className="flex items-center gap-4">
-            <p className="rounded-full border items-center text-[12px] flex justify-center w-10 h-10 font-medium text-white bg-orange-500">
+      <div className="mb-4 lg:mb-6 border-b pt-2 px-2 sm:px-3 lg:px-8 pb-2 w-full">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="min-w-0 flex items-start gap-2 sm:gap-4">
+            <p className="rounded-full border items-center text-[10px] sm:text-[12px] flex justify-center w-9 h-9 sm:w-10 sm:h-10 font-medium text-white bg-orange-500 shrink-0">
               Group
             </p>
-          </div>
-          <div>
-            <h2 className="text-sm font-semibold">
-              {groupUsers?.name?.charAt(0).toUpperCase() +
-                groupUsers?.name?.slice(1)}
-            </h2>
-            <p className="text-[10px] text-green-500 font-semibold">Active</p>
-          </div>
-          <div className="flex items-center space-x-2">
-            <IoPeopleSharp />
-            <p className="text[10px]">({channelInfo?.members.length})</p>
-          </div>
-        </div>
-        <div className="relative flex">
-          <IoMdShareAlt onClick={handleShare} className="cursor-pointer" />
-
-          {modal && (
-            <div className="absolute top-12 right-0 mt-2 space-y-4 bg-white px-2 pb-4 rounded shadow-lg  w-64">
-              <button
-                className="absolute top-1 right-0 text-xl px-2"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setModal(false);
-                }}
-              >
-                &times;
-              </button>
-              <input
-                name="email"
-                type="email"
-                id="email"
-                value={inputSend}
-                onChange={(e) => handleText(e.target.value)}
-                className="w-full p-1 mt-8  border border-gray-400 rounded outline-none text-[15px]"
-              />
-              <div className="flex justify-between">
-                <p className="p-1 bg-gray-200 rounded text-[12px]">
-                  {channelInfo.inviteLink}
-                </p>
-                <button
-                  className="ml-2 px-2 text-[12px]  pb-0.5 pt-0.5 bg-orange-400 text-white rounded cursor-pointer"
-                  onClick={() => {
-                    navigator.clipboard.writeText(channelInfo.inviteLink);
-                    alert("Copied to clipboard!");
-                  }}
-                >
-                  copy
-                </button>
-              </div>
-              <div className="flex justify-center items-center">
-                <button
-                  className="ml-2 px-2 text-[12px]  pb-0.5 pt-0.5 bg-orange-400 text-white rounded"
-                  onClick={handleSend}
-                >
-                  Send
-                </button>
+            <div className="min-w-0">
+              <h2 className="text-sm font-semibold truncate">
+                {channelDisplayName.charAt(0).toUpperCase() +
+                  channelDisplayName.slice(1)}
+              </h2>
+              <div className="mt-0.5 flex items-center gap-2">
+                <p className="text-[10px] text-green-500 font-semibold">Active</p>
+                <div className="flex items-center gap-1 text-xs text-gray-700">
+                  <IoPeopleSharp className="shrink-0" />
+                  <p>({channelInfo?.members?.length ?? 0})</p>
+                </div>
               </div>
             </div>
-          )}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 lg:flex-nowrap lg:justify-end">
+            <div className="inline-flex rounded-lg border border-gray-200 bg-white p-1 min-w-0">
+              <button
+                type="button"
+                onClick={() => setActiveTab("chat")}
+                className={`px-2.5 sm:px-3 py-1.5 text-xs sm:text-sm whitespace-nowrap rounded-md ${
+                  activeTab === "chat"
+                    ? "bg-orange-500 text-white"
+                    : "text-gray-600 hover:bg-gray-100"
+                }`}
+              >
+                Chat
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab("tasks")}
+                className={`px-2.5 sm:px-3 py-1.5 text-xs sm:text-sm whitespace-nowrap rounded-md ${
+                  activeTab === "tasks"
+                    ? "bg-orange-500 text-white"
+                    : "text-gray-600 hover:bg-gray-100"
+                }`}
+              >
+                Manage Tasks
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setCreateTaskModalSignal((prev) => prev + 1)}
+              className="rounded-md bg-orange-500 px-3 py-1.5 text-xs sm:text-sm font-medium text-white hover:bg-orange-600"
+            >
+              Create Task
+            </button>
+
+            <div className="relative flex items-center gap-1 sm:gap-2 lg:gap-3 shrink-0">
+              <button
+                type="button"
+                onClick={handleShare}
+                className="p-1 text-gray-700 hover:text-gray-900"
+              >
+                <IoMdShareAlt className="cursor-pointer" />
+              </button>
+
+              {modal && (
+                <div className="absolute top-10 right-0 mt-2 space-y-4 bg-white px-2 pb-4 rounded shadow-lg w-64 max-w-[85vw] z-20">
+                  <button
+                    className="absolute top-1 right-0 text-xl px-2"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setModal(false);
+                    }}
+                  >
+                    &times;
+                  </button>
+                  <input
+                    name="email"
+                    type="email"
+                    id="email"
+                    value={inputSend}
+                    onChange={(e) => handleText(e.target.value)}
+                    className="w-full p-1 mt-8 border border-gray-400 rounded outline-none text-[15px]"
+                  />
+                  <div className="flex justify-between">
+                    <p className="p-1 bg-gray-200 rounded text-[12px]">
+                      {channelInfo?.inviteLink}
+                    </p>
+                    <button
+                      className="ml-2 px-2 text-[12px] pb-0.5 pt-0.5 bg-orange-400 text-white rounded cursor-pointer"
+                      onClick={() => {
+                        navigator.clipboard.writeText(channelInfo?.inviteLink || "");
+                        alert("Copied to clipboard!");
+                      }}
+                    >
+                      copy
+                    </button>
+                  </div>
+                  <div className="flex justify-center items-center">
+                    <button
+                      className="ml-2 px-2 text-[12px] pb-0.5 pt-0.5 bg-orange-400 text-white rounded"
+                      onClick={handleSend}
+                    >
+                      Send
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Chat Messages */}
+      {activeTab === "chat" && (
+      <>
       <div className="flex-1 px-3 lg:px-4 overflow-y-auto scrollable pb-2">
         {messages.map((msg, index) => {
           const isSelf = String(msg.sender) === String(senderId);
-          const senderLabel = isSelf ? "You" : getSenderName(String(msg.sender));
+          const senderLabel = msg?.isSystem
+            ? msg.systemLabel || "System"
+            : isSelf
+            ? "You"
+            : getSenderName(String(msg.sender));
           const replyContext = getReplyContext(msg);
           const currentDay = moment(msg.createdAt).format("YYYY-MM-DD");
           const previousDay =
@@ -510,7 +599,7 @@ const ChannelChat = () => {
                   target="_blank"
                   rel="noopener noreferrer"
                   className={`underline break-words break-all ${
-                    isSelf ? "text-white/90" : "text-blue-600"
+                    isSelf ? "text-blue-700" : "text-blue-600"
                   }`}
                 >
                   {msg.message}
@@ -637,10 +726,20 @@ const ChannelChat = () => {
         </button>
         </div>
       </div>
+      </>
+      )}
+
+      <ChannelTaskManager
+        channelId={channelId}
+        channelName={channelDisplayName}
+        channelMembers={channelInfo?.members || []}
+        currentUserId={senderId}
+        showList={activeTab === "tasks"}
+        openCreateTaskSignal={createTaskModalSignal}
+      />
     </div>
   );
 };
 
 export default ChannelChat;
-
 

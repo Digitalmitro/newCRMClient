@@ -8,6 +8,7 @@ import { MdLogout } from "react-icons/md";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../../context/authContext";
 function Searchbar() {
+  const TASK_NOTIFICATION_TYPES = ["TASK_ASSIGNED", "TASK_COMPLETED", "TASK_OVERDUE"];
   const [unreadCount, setUnreadCount] = useState(0);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [notification, setNotification] = useState([]);
@@ -52,6 +53,19 @@ function Searchbar() {
       return;
     }
     if (!notify.sender) return;
+
+    if (TASK_NOTIFICATION_TYPES.includes(notify.type)) {
+      navigate("/channelchat", {
+        state: {
+          name: notify?.title,
+          description: notify?.description,
+          id: notify?.sender,
+          openTasks: true,
+        },
+      });
+      return;
+    }
+
     navigate("/channelchat", {
       state: {
         name: notify?.title,
@@ -164,7 +178,10 @@ function Searchbar() {
 
             <button
               className="text-red-500 text-xs font-bold px-2 py-1 hover:text-red-700"
-              onClick={() => removeNotification(i)}
+              onClick={(event) => {
+                event.stopPropagation();
+                removeNotification(i);
+              }}
             >
               <IoIosClose size={26}/>
             </button>
