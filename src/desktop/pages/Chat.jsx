@@ -3,7 +3,6 @@ import axios from "axios";
 import { Send, Paperclip, CornerUpLeft, X } from "lucide-react";
 import { useLocation } from "react-router-dom";
 import {
-  sendMessage,
   onMessageReceived,
   connectSocket,
   onUserStatusUpdate,
@@ -215,9 +214,19 @@ const Chat = () => {
     };
 
     try {
-      await axios.post(`${import.meta.env.VITE_BACKEND_API}/message/send-message`, newMessage);
-      sendMessage(senderId, receiverId, messageContent);
-      setInput("");
+      const response = await axios.post(
+        `${import.meta.env.VITE_BACKEND_API}/message/send-message`,
+        newMessage
+      );
+      const savedMessage = response?.data?.data;
+      if (savedMessage?._id) {
+        setMessages((prevMessages) => {
+          if (prevMessages.some((msg) => msg._id === savedMessage._id)) {
+            return prevMessages;
+          }
+          return [...prevMessages, savedMessage];
+        });
+      }
       setReplyTarget(null);
     } catch (error) {
       console.error("Error sending message:", error);
@@ -458,7 +467,7 @@ const Chat = () => {
                     target="_blank"
                     rel="noopener noreferrer"
                     className={`underline break-words break-all ${
-                      isSelf ? "text-white/90" : "text-blue-600"
+                      isSelf ? "text-blue-700 hover:text-blue-800" : "text-blue-600 hover:text-blue-700"
                     }`}
                   >
                     {msg.message}

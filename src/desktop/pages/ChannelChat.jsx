@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { IoPeopleSharp } from "react-icons/io5";
 import { Send, Paperclip, CornerUpLeft, X } from "lucide-react";
 import moment from "moment";
@@ -9,12 +9,14 @@ import { IoMdShareAlt } from "react-icons/io";
 import { useAuth } from "../../context/authContext";
 import {
   onChannelMessageReceived,
-  sendChannelMessage,
   joinChannel,
 } from "../../utils/socket"; // Socket functions
 import axios from "axios";
 import { downloadFile, downloadImage, getFileNameFromUrl } from "../../utils/helper";
 import ChannelTaskManager from "../Components/Channel/ChannelTaskManager";
+
+const TASK_NUMBER_REGEX = /\bTASK-\d{4}\b/i;
+
 const ChannelChat = () => {
   const { userData } = useAuth();
   const location = useLocation();
@@ -37,12 +39,94 @@ const ChannelChat = () => {
     location?.state?.openTasks ? "tasks" : "chat"
   );
   const [createTaskModalSignal, setCreateTaskModalSignal] = useState(0);
+  const [taskByNumber, setTaskByNumber] = useState({});
+  const [taskActionLoading, setTaskActionLoading] = useState({});
+  const [taskFocusNumber, setTaskFocusNumber] = useState("");
+  const [taskFocusSignal, setTaskFocusSignal] = useState(0);
+  const token = localStorage.getItem("token");
   const messagesEndRef = useRef(null);
   const messageRefs = useRef({});
   const highlightTimerRef = useRef(null);
   const fileInputRef = useRef(null);
   const handleShare = () => {
     setModal(true);
+  };
+  const extractTaskNumber = useCallback((text = "") => {
+    if (!text) return "";
+    const match = text.match(TASK_NUMBER_REGEX);
+    return match ? match[0].toUpperCase() : "";
+  }, []);
+
+  const fetchTaskIndex = useCallback(async () => {
+    if (!channelId || !token) return;
+    try {
+      const response = await fetch(
+        `${import.meta.env.VITE_BACKEND_API}/channels/${channelId}/tasks`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) return;
+      const index = {};
+      (data?.tasks || []).forEach((task) => {
+        if (task?.taskNumber) {
+          index[task.taskNumber.toUpperCase()] = task;
+        }
+      });
+      setTaskByNumber(index);
+    } catch (error) {
+      console.error("Error fetching task index:", error);
+    }
+  }, [channelId, token]);
+
+  const openTaskDetails = (taskNumber) => {
+    if (!taskNumber) return;
+    setTaskFocusNumber(taskNumber);
+    setTaskFocusSignal((prev) => prev + 1);
+    setActiveTab("tasks");
+  };
+
+  const handleTaskQuickStatusChange = async (taskNumber, status) => {
+    if (!taskNumber || !status) return;
+    const task = taskByNumber[taskNumber];
+    if (!task?._id) {
+      openTaskDetails(taskNumber);
+      return;
+    }
+
+    setTaskActionLoading((prev) => ({ ...prev, [taskNumber]: true }));
+    try {
+      const response = await fetch(
+        `${import.meta.env.VITE_BACKEND_API}/channels/${channelId}/tasks/${task._id}`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ status }),
+        }
+      );
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        console.error(data?.message || "Unable to update task status.");
+        return;
+      }
+      if (data?.task?.taskNumber) {
+        setTaskByNumber((prev) => ({
+          ...prev,
+          [data.task.taskNumber.toUpperCase()]: data.task,
+        }));
+      }
+    } catch (error) {
+      console.error("Unable to update task status:", error);
+    } finally {
+      setTaskActionLoading((prev) => ({ ...prev, [taskNumber]: false }));
+      fetchTaskIndex();
+    }
   };
   // console.log(channelInfo);
 
@@ -75,7 +159,8 @@ const ChannelChat = () => {
     fetchMessages();
     joinChannel(channelId);
     fetchChannelsInfo();
-  }, [channelId]);
+    fetchTaskIndex();
+  }, [channelId, fetchTaskIndex]);
 
   useEffect(() => {
     setReplyTarget(null);
@@ -102,10 +187,13 @@ const ChannelChat = () => {
         }
         return [...prevMessages, msg];
       });
+      if (msg?.isSystem && extractTaskNumber(msg?.message)) {
+        fetchTaskIndex();
+      }
     });
 
     return unsubscribe;
-  }, [channelId]);
+  }, [channelId, extractTaskNumber, fetchTaskIndex]);
 
   const scrollToLatestMessage = (behavior = "smooth") => {
     messagesEndRef.current?.scrollIntoView({ behavior, block: "end" });
@@ -197,9 +285,19 @@ const ChannelChat = () => {
     };
 
     try {
-      await axios.post(`${import.meta.env.VITE_BACKEND_API}/channels/send`, newMessage);
-      sendChannelMessage(newMessage.channelId, newMessage.sender, newMessage.message);
-      setInput("");
+      const response = await axios.post(
+        `${import.meta.env.VITE_BACKEND_API}/channels/send`,
+        newMessage
+      );
+      const savedMessage = response?.data?.data;
+      if (savedMessage?._id) {
+        setMessages((prevMessages) => {
+          if (prevMessages.some((msg) => msg._id === savedMessage._id)) {
+            return prevMessages;
+          }
+          return [...prevMessages, savedMessage];
+        });
+      }
       setReplyTarget(null);
     } catch (error) {
       console.error("Error sending message:", error);
@@ -519,6 +617,12 @@ const ChannelChat = () => {
       <div className="flex-1 px-3 lg:px-4 overflow-y-auto scrollable pb-2">
         {messages.map((msg, index) => {
           const isSelf = String(msg.sender) === String(senderId);
+          const taskNumber = msg?.isSystem ? extractTaskNumber(msg?.message) : "";
+          const linkedTask = taskNumber ? taskByNumber[taskNumber] : null;
+          const isTaskActionLoading = taskNumber ? !!taskActionLoading[taskNumber] : false;
+          const canAcknowledge = linkedTask?.status === "Assigned";
+          const canComplete =
+            linkedTask?.status === "Assigned" || linkedTask?.status === "Acknowledged";
           const senderLabel = msg?.isSystem
             ? msg.systemLabel || "System"
             : isSelf
@@ -609,6 +713,54 @@ const ChannelChat = () => {
                   {msg.message}
                 </span>
               )}
+                  {taskNumber && (
+                    <div className="mt-1.5 rounded-md border border-slate-200/80 bg-white/70 p-1.5">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => openTaskDetails(taskNumber)}
+                          className="rounded border border-slate-300 bg-white px-2 py-1 text-[10px] font-medium text-slate-700 hover:bg-slate-50"
+                        >
+                          View Task
+                        </button>
+                        {canAcknowledge && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleTaskQuickStatusChange(taskNumber, "Acknowledged")
+                            }
+                            disabled={isTaskActionLoading}
+                            className="rounded border border-blue-300 bg-blue-50 px-2 py-1 text-[10px] font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-60"
+                          >
+                            Acknowledge
+                          </button>
+                        )}
+                        {canComplete && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleTaskQuickStatusChange(taskNumber, "Completed")
+                            }
+                            disabled={isTaskActionLoading}
+                            className="rounded border border-green-300 bg-green-50 px-2 py-1 text-[10px] font-medium text-green-700 hover:bg-green-100 disabled:opacity-60"
+                          >
+                            Complete
+                          </button>
+                        )}
+                        <span className="rounded bg-slate-100 px-1.5 py-1 text-[10px] font-semibold text-slate-600">
+                          {linkedTask?.status || "Syncing..."}
+                        </span>
+                      </div>
+                      {linkedTask && (
+                        <p className="mt-1 text-[10px] text-slate-500">
+                          Due {moment(linkedTask.deadline).format("DD MMM, HH:mm")}
+                          {linkedTask?.assignedToUser?.name
+                            ? ` • ${linkedTask.assignedToUser.name}`
+                            : ""}
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </div>
                 <div className="flex flex-col items-end justify-between">
                     <button
@@ -736,6 +888,8 @@ const ChannelChat = () => {
         currentUserId={senderId}
         showList={activeTab === "tasks"}
         openCreateTaskSignal={createTaskModalSignal}
+        focusTaskNumber={taskFocusNumber}
+        focusTaskSignal={taskFocusSignal}
       />
     </div>
   );

@@ -26,6 +26,8 @@ const ChannelTaskManager = ({
   currentUserId,
   showList = true,
   openCreateTaskSignal = 0,
+  focusTaskNumber = "",
+  focusTaskSignal = 0,
 }) => {
   const token = localStorage.getItem("token");
   const [tasks, setTasks] = useState([]);
@@ -34,6 +36,7 @@ const ChannelTaskManager = ({
   const [updatingTaskId, setUpdatingTaskId] = useState(null);
   const [error, setError] = useState("");
   const [collapsedMonths, setCollapsedMonths] = useState({});
+  const [highlightTaskNumber, setHighlightTaskNumber] = useState("");
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState({
@@ -82,6 +85,21 @@ const ChannelTaskManager = ({
       setIsCreateModalOpen(true);
     }
   }, [openCreateTaskSignal, channelId]);
+
+  useEffect(() => {
+    const normalizedTaskNumber = (focusTaskNumber || "").trim().toUpperCase();
+    if (!normalizedTaskNumber) return undefined;
+    setSearchInput(normalizedTaskNumber);
+    setSearch(normalizedTaskNumber);
+    setCollapsedMonths({});
+    setHighlightTaskNumber(normalizedTaskNumber);
+    const timer = setTimeout(() => {
+      setHighlightTaskNumber((current) =>
+        current === normalizedTaskNumber ? "" : current
+      );
+    }, 1800);
+    return () => clearTimeout(timer);
+  }, [focusTaskNumber, focusTaskSignal]);
 
   const fetchTasks = async () => {
     if (!channelId || !token) return;
@@ -452,6 +470,7 @@ const ChannelTaskManager = ({
                   {!isCollapsed && (
                     <div className="p-3 space-y-3">
                       {items.map((task) => {
+                        const normalizedTaskNumber = (task.taskNumber || "").toUpperCase();
                         const assigneeId =
                           task.assignedToUser?._id ||
                           task.assignedTo?._id ||
@@ -463,13 +482,14 @@ const ChannelTaskManager = ({
                         const overdue =
                           task.status !== "Completed" &&
                           moment(task.deadline).isBefore(moment());
+                        const isHighlighted = highlightTaskNumber === normalizedTaskNumber;
 
                         return (
                           <div
                             key={task._id}
                             className={`rounded-lg border p-3 ${
                               overdue ? "border-red-300 bg-red-50" : "border-gray-200 bg-white"
-                            }`}
+                            } ${isHighlighted ? "ring-2 ring-orange-300" : ""}`}
                           >
                             <div className="flex flex-wrap items-center justify-between gap-2">
                               <div className="flex items-center gap-2">
