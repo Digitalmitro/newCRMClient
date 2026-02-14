@@ -214,11 +214,17 @@ const ChannelTaskManager = ({
   });
   const [isUploadingCreateAttachments, setIsUploadingCreateAttachments] = useState(false);
   const [isUploadingEditAttachments, setIsUploadingEditAttachments] = useState(false);
-  const [openCommentsByTask, setOpenCommentsByTask] = useState({});
-  const [openActivityByTask, setOpenActivityByTask] = useState({});
   const [commentDraftByTask, setCommentDraftByTask] = useState({});
   const [commentMentionsByTask, setCommentMentionsByTask] = useState({});
   const [submittingCommentTaskId, setSubmittingCommentTaskId] = useState(null);
+  const [taskViewMode, setTaskViewMode] = useState("compact");
+  const [openTaskDetailsById, setOpenTaskDetailsById] = useState({});
+  const [openQuickEditById, setOpenQuickEditById] = useState({});
+  const [taskDrawer, setTaskDrawer] = useState({
+    open: false,
+    taskId: "",
+    tab: "comments",
+  });
   const lastOpenTaskSignalRef = useRef(0);
 
   const memberOptions = useMemo(
@@ -267,6 +273,11 @@ const ChannelTaskManager = ({
     [editTask.escalationMinutesAfterDue]
   );
 
+  const selectedDrawerTask = useMemo(() => {
+    if (!taskDrawer.taskId) return null;
+    return tasks.find((task) => task?._id === taskDrawer.taskId) || null;
+  }, [tasks, taskDrawer.taskId]);
+
   useEffect(() => {
     const timer = setTimeout(() => {
       setSearch(searchInput.trim());
@@ -290,11 +301,17 @@ const ChannelTaskManager = ({
     setIsEditModalOpen(false);
     setIsUploadingCreateAttachments(false);
     setIsUploadingEditAttachments(false);
-    setOpenCommentsByTask({});
-    setOpenActivityByTask({});
     setCommentDraftByTask({});
     setCommentMentionsByTask({});
     setSubmittingCommentTaskId(null);
+    setTaskViewMode("compact");
+    setOpenTaskDetailsById({});
+    setOpenQuickEditById({});
+    setTaskDrawer({
+      open: false,
+      taskId: "",
+      tab: "comments",
+    });
     setNewTask({
       title: "",
       description: "",
@@ -350,6 +367,12 @@ const ChannelTaskManager = ({
     }, 1800);
     return () => clearTimeout(timer);
   }, [focusTaskNumber, focusTaskSignal]);
+
+  useEffect(() => {
+    if (taskDrawer.open && !selectedDrawerTask) {
+      setTaskDrawer({ open: false, taskId: "", tab: "comments" });
+    }
+  }, [taskDrawer.open, selectedDrawerTask]);
 
   const fetchTasks = async () => {
     if (!channelId || !token) return;
@@ -775,12 +798,34 @@ const ChannelTaskManager = ({
     setCollapsedMonths((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
-  const toggleComments = (taskId) => {
-    setOpenCommentsByTask((prev) => ({ ...prev, [taskId]: !prev[taskId] }));
+  const toggleTaskDetails = (taskId) => {
+    if (!taskId) return;
+    setOpenTaskDetailsById((prev) => ({ ...prev, [taskId]: !prev[taskId] }));
   };
 
-  const toggleActivity = (taskId) => {
-    setOpenActivityByTask((prev) => ({ ...prev, [taskId]: !prev[taskId] }));
+  const toggleQuickEdit = (taskId) => {
+    if (!taskId) return;
+    setOpenQuickEditById((prev) => ({ ...prev, [taskId]: !prev[taskId] }));
+  };
+
+  const openTaskDrawer = (taskId, tab = "comments") => {
+    if (!taskId) return;
+    setTaskDrawer({
+      open: true,
+      taskId,
+      tab: tab === "activity" ? "activity" : "comments",
+    });
+  };
+
+  const closeTaskDrawer = () => {
+    setTaskDrawer({ open: false, taskId: "", tab: "comments" });
+  };
+
+  const switchTaskDrawerTab = (tab) => {
+    setTaskDrawer((prev) => ({
+      ...prev,
+      tab: tab === "activity" ? "activity" : "comments",
+    }));
   };
 
   const extractMentionNames = (text = "") =>
@@ -884,9 +929,9 @@ const ChannelTaskManager = ({
   return (
     <>
       {isCreateModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-          <div className="w-full max-w-2xl rounded-lg bg-white shadow-xl">
-            <div className="flex items-center justify-between border-b px-4 py-3">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-4">
+          <div className="flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-lg bg-white shadow-xl">
+            <div className="flex items-center justify-between border-b px-4 py-2.5">
               <h3 className="text-base font-semibold">Create Task</h3>
               <button
                 type="button"
@@ -897,14 +942,14 @@ const ChannelTaskManager = ({
               </button>
             </div>
 
-            <div className="p-4 space-y-3">
+            <div className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-2.5">
               {error && (
                 <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">
                   {error}
                 </div>
               )}
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-2.5 md:grid-cols-2">
                 <input
                   type="text"
                   value={newTask.title}
@@ -960,11 +1005,11 @@ const ChannelTaskManager = ({
                 />
               </div>
 
-              <div className="rounded border border-gray-200 bg-gray-50 p-3">
+              <div className="rounded border border-gray-200 bg-gray-50 p-2.5">
                 <p className="mb-2 text-xs font-semibold text-slate-700">
                   Reminder & Escalation Rules
                 </p>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 gap-2.5 md:grid-cols-2">
                   <label className="flex items-center gap-2 text-xs text-slate-700">
                     <input
                       type="checkbox"
@@ -979,7 +1024,7 @@ const ChannelTaskManager = ({
                     Enable reminders
                   </label>
                   <div className="space-y-2">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2 lg:grid-cols-3">
                       {REMINDER_PRESET_OPTIONS.map((minute) => {
                         const isSelected = newTaskReminderMinutes.includes(minute);
                         return (
@@ -1065,10 +1110,10 @@ const ChannelTaskManager = ({
                   setNewTask((prev) => ({ ...prev, description: event.target.value }))
                 }
                 placeholder="Task description"
-                className="w-full border border-gray-300 rounded px-3 py-2 text-sm outline-none min-h-[96px]"
+                className="w-full border border-gray-300 rounded px-3 py-2 text-sm outline-none min-h-[88px]"
               />
 
-              <div className="rounded border border-gray-200 bg-gray-50 p-3">
+              <div className="rounded border border-gray-200 bg-gray-50 p-2.5">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <p className="text-sm font-medium text-slate-700">
                     Attach Files ({newTask.attachments?.length || 0}/{MAX_TASK_ATTACHMENTS})
@@ -1119,7 +1164,7 @@ const ChannelTaskManager = ({
               </div>
             </div>
 
-            <div className="border-t px-4 py-3 flex justify-end gap-2">
+            <div className="flex justify-end gap-2 border-t px-3 py-2.5 sm:px-4">
               <button
                 type="button"
                 onClick={closeCreateModal}
@@ -1146,9 +1191,9 @@ const ChannelTaskManager = ({
       )}
 
       {isEditModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-          <div className="w-full max-w-2xl rounded-lg bg-white shadow-xl">
-            <div className="flex items-center justify-between border-b px-4 py-3">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-4">
+          <div className="flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-lg bg-white shadow-xl">
+            <div className="flex items-center justify-between border-b px-4 py-2.5">
               <h3 className="text-base font-semibold">
                 Edit Task {editTask.taskNumber ? `(${editTask.taskNumber})` : ""}
               </h3>
@@ -1161,14 +1206,14 @@ const ChannelTaskManager = ({
               </button>
             </div>
 
-            <div className="p-4 space-y-3">
+            <div className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-2.5">
               {error && (
                 <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">
                   {error}
                 </div>
               )}
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-2.5 md:grid-cols-2">
                 <input
                   type="text"
                   value={editTask.title}
@@ -1204,11 +1249,11 @@ const ChannelTaskManager = ({
                 />
               </div>
 
-              <div className="rounded border border-gray-200 bg-gray-50 p-3">
+              <div className="rounded border border-gray-200 bg-gray-50 p-2.5">
                 <p className="mb-2 text-xs font-semibold text-slate-700">
                   Reminder & Escalation Rules
                 </p>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 gap-2.5 md:grid-cols-2">
                   <label className="flex items-center gap-2 text-xs text-slate-700">
                     <input
                       type="checkbox"
@@ -1223,7 +1268,7 @@ const ChannelTaskManager = ({
                     Enable reminders
                   </label>
                   <div className="space-y-2">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2 lg:grid-cols-3">
                       {REMINDER_PRESET_OPTIONS.map((minute) => {
                         const isSelected = editTaskReminderMinutes.includes(minute);
                         return (
@@ -1310,10 +1355,10 @@ const ChannelTaskManager = ({
                 }
                 maxLength={2000}
                 placeholder="Task description"
-                className="w-full border border-gray-300 rounded px-3 py-2 text-sm outline-none min-h-[120px]"
+                className="w-full border border-gray-300 rounded px-3 py-2 text-sm outline-none min-h-[96px]"
               />
 
-              <div className="rounded border border-gray-200 bg-gray-50 p-3">
+              <div className="rounded border border-gray-200 bg-gray-50 p-2.5">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <p className="text-sm font-medium text-slate-700">
                     Attach Files ({editTask.attachments?.length || 0}/{MAX_TASK_ATTACHMENTS})
@@ -1364,7 +1409,7 @@ const ChannelTaskManager = ({
               </div>
             </div>
 
-            <div className="border-t px-4 py-3 flex justify-end gap-2">
+            <div className="flex justify-end gap-2 border-t px-3 py-2.5 sm:px-4">
               <button
                 type="button"
                 onClick={closeEditModal}
@@ -1397,20 +1442,20 @@ const ChannelTaskManager = ({
       {showList && (
         <div className="flex-1 overflow-y-auto px-3 lg:px-4 pb-4">
           <div className="rounded-lg border border-gray-200 bg-white p-3 mb-3">
-            <div className="flex flex-col gap-2 lg:flex-row lg:flex-wrap">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-12">
               <input
                 type="text"
                 placeholder="Search by task title or task number"
                 value={searchInput}
                 onChange={(event) => setSearchInput(event.target.value)}
-                className="flex-1 border border-gray-300 rounded px-3 py-2 text-sm outline-none"
+                className="border border-gray-300 rounded px-3 py-2 text-sm outline-none xl:col-span-2"
               />
               <select
                 value={filters.status}
                 onChange={(event) =>
                   setFilters((prev) => ({ ...prev, status: event.target.value }))
                 }
-                className="border border-gray-300 rounded px-3 py-2 text-sm outline-none"
+                className="border border-gray-300 rounded px-3 py-2 text-sm outline-none xl:col-span-2"
               >
                 <option value="">All Status</option>
                 {STATUS_OPTIONS.map((status) => (
@@ -1425,52 +1470,81 @@ const ChannelTaskManager = ({
                 onChange={(event) =>
                   setFilters((prev) => ({ ...prev, month: event.target.value }))
                 }
-                className="border border-gray-300 rounded px-3 py-2 text-sm outline-none"
+                className="border border-gray-300 rounded px-3 py-2 text-sm outline-none xl:col-span-2"
               />
               <select
                 value={filters.assignedTo}
                 onChange={(event) =>
                   setFilters((prev) => ({ ...prev, assignedTo: event.target.value }))
                 }
-                className="border border-gray-300 rounded px-3 py-2 text-sm outline-none"
+                className="border border-gray-300 rounded px-3 py-2 text-sm outline-none xl:col-span-2"
               >
                 <option value="">All Assignees</option>
                 {memberOptions.map((member) => (
                   <option key={member.id} value={member.id}>
                     {member.name}
                   </option>
-                  ))}
-                </select>
-                <select
-                  value={filters.priority}
-                  onChange={(event) =>
-                    setFilters((prev) => ({ ...prev, priority: event.target.value }))
-                  }
-                  className="border border-gray-300 rounded px-3 py-2 text-sm outline-none"
-                >
-                  <option value="">All Priorities</option>
-                  {PRIORITY_OPTIONS.map((priority) => (
-                    <option key={priority} value={priority}>
-                      {priority}
-                    </option>
-                  ))}
-                </select>
-                <input
-                  type="text"
-                  value={filters.tag}
-                  onChange={(event) =>
-                    setFilters((prev) => ({ ...prev, tag: event.target.value }))
-                  }
-                  placeholder="Filter by tag"
-                  className="border border-gray-300 rounded px-3 py-2 text-sm outline-none"
-                />
-                <button
-                  type="button"
-                  onClick={resetFilters}
-                className="border border-gray-300 rounded px-3 py-2 text-sm"
+                ))}
+              </select>
+              <select
+                value={filters.priority}
+                onChange={(event) =>
+                  setFilters((prev) => ({ ...prev, priority: event.target.value }))
+                }
+                className="border border-gray-300 rounded px-3 py-2 text-sm outline-none xl:col-span-1"
+              >
+                <option value="">All Priorities</option>
+                {PRIORITY_OPTIONS.map((priority) => (
+                  <option key={priority} value={priority}>
+                    {priority}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="text"
+                value={filters.tag}
+                onChange={(event) =>
+                  setFilters((prev) => ({ ...prev, tag: event.target.value }))
+                }
+                placeholder="Filter by tag"
+                className="border border-gray-300 rounded px-3 py-2 text-sm outline-none xl:col-span-2"
+              />
+              <button
+                type="button"
+                onClick={resetFilters}
+                className="border border-gray-300 rounded px-3 py-2 text-sm xl:col-span-1"
               >
                 Reset
               </button>
+            </div>
+            <div className="mt-2 flex items-center justify-between gap-2 border-t border-gray-100 pt-2">
+              <p className="text-xs text-slate-500">
+                {tasks.length} task{tasks.length === 1 ? "" : "s"} in this channel
+              </p>
+              <div className="inline-flex rounded border border-gray-300 bg-white p-0.5">
+                <button
+                  type="button"
+                  onClick={() => setTaskViewMode("compact")}
+                  className={`rounded px-2.5 py-1 text-xs font-medium ${
+                    taskViewMode === "compact"
+                      ? "bg-slate-700 text-white"
+                      : "text-slate-600 hover:bg-slate-100"
+                  }`}
+                >
+                  Compact View
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTaskViewMode("detailed")}
+                  className={`rounded px-2.5 py-1 text-xs font-medium ${
+                    taskViewMode === "detailed"
+                      ? "bg-slate-700 text-white"
+                      : "text-slate-600 hover:bg-slate-100"
+                  }`}
+                >
+                  Detailed View
+                </button>
+              </div>
             </div>
           </div>
 
@@ -1537,22 +1611,42 @@ const ChannelTaskManager = ({
                           task.status !== "Completed" &&
                           moment(task.deadline).isBefore(moment());
                         const isHighlighted = highlightTaskNumber === normalizedTaskNumber;
+                        const showTaskDetails =
+                          taskViewMode === "detailed" || !!openTaskDetailsById[task._id];
+                        const showQuickEdit =
+                          taskViewMode === "detailed" || !!openQuickEditById[task._id];
+                        const taskAttachmentCount = Array.isArray(task.attachments)
+                          ? task.attachments.length
+                          : 0;
+                        const taskCommentCount = Array.isArray(task.comments)
+                          ? task.comments.length
+                          : 0;
+                        const taskActivityCount = Array.isArray(task.activityLog)
+                          ? task.activityLog.length
+                          : 0;
+                        const statusBorderClass = overdue
+                          ? "border-l-red-400"
+                          : task.status === "Completed"
+                          ? "border-l-emerald-400"
+                          : task.status === "Acknowledged"
+                          ? "border-l-blue-400"
+                          : "border-l-amber-400";
 
                         return (
                           <div
                             key={task._id}
-                            className={`rounded-lg border p-3 ${
+                            className={`rounded-xl border border-l-4 p-3 shadow-sm ${
                               overdue ? "border-red-300 bg-red-50" : "border-gray-200 bg-white"
-                            } ${isHighlighted ? "ring-2 ring-orange-300" : ""}`}
+                            } ${statusBorderClass} ${isHighlighted ? "ring-2 ring-orange-300" : ""}`}
                           >
-                            <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex flex-wrap items-start justify-between gap-2">
                               <div className="flex items-center gap-2">
                                 <span className="text-xs font-semibold px-2 py-1 rounded bg-gray-100 text-gray-700">
                                   {task.taskNumber}
                                 </span>
                                 <span className="text-sm font-semibold">{task.title}</span>
                               </div>
-                              <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-1.5">
                                 <span
                                   className={`text-xs px-2 py-1 rounded ${
                                     task.status === "Completed"
@@ -1584,334 +1678,226 @@ const ChannelTaskManager = ({
                                 >
                                   Edit
                                 </button>
+                                <button
+                                  type="button"
+                                  onClick={() => toggleTaskDetails(task._id)}
+                                  className="text-xs px-2 py-1 rounded border border-slate-300 text-slate-600 hover:bg-slate-50"
+                                >
+                                  {showTaskDetails ? "Hide Details" : "Details"}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => toggleQuickEdit(task._id)}
+                                  className="text-xs px-2 py-1 rounded border border-slate-300 text-slate-600 hover:bg-slate-50"
+                                >
+                                  {showQuickEdit ? "Hide Quick Edit" : "Quick Edit"}
+                                </button>
                               </div>
                             </div>
 
-                            {task.description && (
-                              <p className="mt-2 text-sm text-gray-700 whitespace-pre-wrap break-words">
-                                {task.description}
-                              </p>
-                            )}
-
-                            {Array.isArray(task.tags) && task.tags.length > 0 && (
-                              <div className="mt-2 flex flex-wrap gap-1.5">
-                                {task.tags.map((tag) => (
-                                  <span
-                                    key={`${task._id}-${tag}`}
-                                    className="rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600"
-                                  >
-                                    #{tag}
-                                  </span>
-                                ))}
-                              </div>
-                            )}
-
-                            <div className="mt-2 rounded border border-slate-200 bg-slate-50 px-2 py-1.5 text-[11px] text-slate-600">
-                              <p>
-                                Reminders:{" "}
-                                {reminderRules.enabled !== false
-                                  ? reminderMinuteLabels.join(", ")
-                                  : "Disabled"}
-                              </p>
-                              <p>
-                                Escalation:{" "}
-                                {escalationRules.enabled !== false
-                                  ? `${formatRuleMinutesLabel(escalationMinutesAfterDue)} after due`
-                                  : "Disabled"}
-                              </p>
+                            <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
+                              <span>Assigned: {task.assignedToUser?.name || "Unassigned"}</span>
+                              <span>Deadline: {moment(task.deadline).format("DD MMM YYYY, HH:mm")}</span>
+                              <span>Files: {taskAttachmentCount}</span>
+                              <span>Comments: {taskCommentCount}</span>
+                              <span>Activity: {taskActivityCount}</span>
                             </div>
 
-                            {Array.isArray(task.attachments) && task.attachments.length > 0 && (
-                              <div className="mt-2 space-y-2">
-                                {task.attachments.map((attachment, attachmentIndex) => {
-                                  const attachmentType = getAttachmentType(attachment);
-                                  const displayName =
-                                    attachment.name || getFileNameFromUrl(attachment.url);
-                                  const sizeLabel = formatAttachmentSize(attachment.size);
+                            {showTaskDetails && (
+                              <>
+                                {task.description && (
+                                  <p className="mt-2 text-sm text-gray-700 whitespace-pre-wrap break-words">
+                                    {task.description}
+                                  </p>
+                                )}
 
-                                  return (
-                                    <div
-                                      key={`${attachment.url}-${attachmentIndex}`}
-                                      className="rounded border border-slate-200 bg-slate-50 p-2"
-                                    >
-                                      {attachmentType === "image" && (
-                                        <img
-                                          src={attachment.url}
-                                          alt={displayName}
-                                          className="mb-2 max-h-48 w-auto rounded border border-slate-200"
-                                        />
-                                      )}
-                                      {attachmentType === "video" && (
-                                        <video
-                                          controls
-                                          src={attachment.url}
-                                          className="mb-2 max-h-48 w-full rounded border border-slate-200"
-                                        />
-                                      )}
-                                      {attachmentType === "audio" && (
-                                        <audio
-                                          controls
-                                          src={attachment.url}
-                                          className="mb-2 w-full"
-                                        />
-                                      )}
-                                      {attachmentType === "pdf" && (
-                                        <iframe
-                                          title={displayName}
-                                          src={attachment.url}
-                                          className="mb-2 h-48 w-full rounded border border-slate-200 bg-white"
-                                        />
-                                      )}
-
-                                      <div className="flex flex-wrap items-center justify-between gap-2">
-                                        <div className="min-w-0">
-                                          <p
-                                            className="truncate text-xs font-medium text-slate-700"
-                                            title={displayName}
-                                          >
-                                            {displayName}
-                                          </p>
-                                          <p className="text-[10px] text-slate-500">
-                                            {attachmentType.toUpperCase()}
-                                            {sizeLabel ? ` | ${sizeLabel}` : ""}
-                                          </p>
-                                        </div>
-                                        <div className="flex items-center gap-1.5">
-                                          <button
-                                            type="button"
-                                            onClick={() =>
-                                              window.open(
-                                                attachment.url,
-                                                "_blank",
-                                                "noopener,noreferrer"
-                                              )
-                                            }
-                                            className="rounded border border-slate-300 bg-white px-2 py-1 text-[10px] font-medium text-slate-700 hover:bg-slate-50"
-                                          >
-                                            Open
-                                          </button>
-                                          <button
-                                            type="button"
-                                            onClick={() =>
-                                              downloadFile(attachment.url, displayName)
-                                            }
-                                            className="rounded border border-slate-300 bg-white px-2 py-1 text-[10px] font-medium text-slate-700 hover:bg-slate-50"
-                                          >
-                                            Download
-                                          </button>
-                                        </div>
-                                      </div>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            )}
-
-                            <p className="mt-2 text-xs text-gray-500">
-                              Created by {creatorName} | Deadline {" "}
-                              {moment(task.deadline).format("DD MMM YYYY, HH:mm")}
-                            </p>
-
-                            <div className="mt-3 rounded border border-slate-200 bg-slate-50">
-                              <button
-                                type="button"
-                                onClick={() => toggleComments(task._id)}
-                                className="flex w-full items-center justify-between px-2.5 py-2 text-xs font-semibold text-slate-700"
-                              >
-                                <span>Comments ({task.comments?.length || 0})</span>
-                                <span>{openCommentsByTask[task._id] ? "-" : "+"}</span>
-                              </button>
-
-                              {openCommentsByTask[task._id] && (
-                                <div className="space-y-2 border-t border-slate-200 px-2.5 py-2">
-                                  <div className="max-h-44 space-y-1.5 overflow-y-auto pr-1">
-                                    {(task.comments || []).length === 0 && (
-                                      <p className="text-[11px] text-slate-500">
-                                        No comments yet.
-                                      </p>
-                                    )}
-                                    {(task.comments || []).map((comment) => (
-                                      <div
-                                        key={comment._id || `${comment.author}-${comment.createdAt}`}
-                                        className="rounded border border-slate-200 bg-white px-2 py-1.5"
+                                {Array.isArray(task.tags) && task.tags.length > 0 && (
+                                  <div className="mt-2 flex flex-wrap gap-1.5">
+                                    {task.tags.map((tag) => (
+                                      <span
+                                        key={`${task._id}-${tag}`}
+                                        className="rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600"
                                       >
-                                        <div className="mb-0.5 flex items-center justify-between gap-2">
-                                          <span className="truncate text-[11px] font-semibold text-slate-700">
-                                            {comment.authorUser?.name || "Unknown"}
-                                          </span>
-                                          <span className="text-[10px] text-slate-500">
-                                            {moment(comment.createdAt).format("DD MMM, HH:mm")}
-                                          </span>
-                                        </div>
-                                        <p className="whitespace-pre-wrap break-words text-xs text-slate-700">
-                                          {comment.content}
-                                        </p>
-                                      </div>
+                                        #{tag}
+                                      </span>
                                     ))}
                                   </div>
+                                )}
 
-                                  <div className="relative">
-                                    <textarea
-                                      value={commentDraftByTask[task._id] || ""}
-                                      onChange={(event) =>
-                                        updateCommentDraft(task._id, event.target.value)
-                                      }
-                                      onKeyDown={(event) => {
-                                        if (
-                                          event.key === "Enter" &&
-                                          !event.shiftKey
-                                        ) {
-                                          event.preventDefault();
-                                          submitTaskComment(task._id);
-                                        }
-                                      }}
-                                      placeholder="Add comment... use @ to mention (e.g. @[John])"
-                                      className="w-full resize-y rounded border border-gray-300 px-2 py-1.5 text-xs outline-none min-h-[56px]"
-                                    />
+                                <div className="mt-2 rounded border border-slate-200 bg-slate-50 px-2 py-1.5 text-[11px] text-slate-600">
+                                  <p>
+                                    Reminders:{" "}
+                                    {reminderRules.enabled !== false
+                                      ? reminderMinuteLabels.join(", ")
+                                      : "Disabled"}
+                                  </p>
+                                  <p>
+                                    Escalation:{" "}
+                                    {escalationRules.enabled !== false
+                                      ? `${formatRuleMinutesLabel(escalationMinutesAfterDue)} after due`
+                                      : "Disabled"}
+                                  </p>
+                                </div>
+                              </>
+                            )}
 
-                                    {(() => {
-                                      const mentionQuery = getMentionQuery(
-                                        commentDraftByTask[task._id] || ""
-                                      );
-                                      if (mentionQuery === null) return null;
-                                      const suggestions = memberOptions
-                                        .filter((member) =>
-                                          (member.name || "")
-                                            .toLowerCase()
-                                            .includes(mentionQuery)
-                                        )
-                                        .slice(0, 6);
-                                      if (suggestions.length === 0) return null;
+                            {showTaskDetails && (
+                              <>
+                                {Array.isArray(task.attachments) && task.attachments.length > 0 && (
+                                  <div className="mt-2 space-y-2">
+                                    {task.attachments.map((attachment, attachmentIndex) => {
+                                      const attachmentType = getAttachmentType(attachment);
+                                      const displayName =
+                                        attachment.name || getFileNameFromUrl(attachment.url);
+                                      const sizeLabel = formatAttachmentSize(attachment.size);
 
                                       return (
-                                        <div className="absolute bottom-full left-0 z-10 mb-1 w-full rounded border border-slate-200 bg-white shadow-md">
-                                          {suggestions.map((member) => (
-                                            <button
-                                              key={member.id}
-                                              type="button"
-                                              onClick={() =>
-                                                insertMentionIntoDraft(task._id, member)
-                                              }
-                                              className="block w-full px-2 py-1.5 text-left text-xs text-slate-700 hover:bg-slate-100"
-                                            >
-                                              {member.name}
-                                            </button>
-                                          ))}
+                                        <div
+                                          key={`${attachment.url}-${attachmentIndex}`}
+                                          className="rounded border border-slate-200 bg-slate-50 p-2"
+                                        >
+                                          {attachmentType === "image" && (
+                                            <img
+                                              src={attachment.url}
+                                              alt={displayName}
+                                              className="mb-2 max-h-48 w-auto rounded border border-slate-200"
+                                            />
+                                          )}
+                                          {attachmentType === "video" && (
+                                            <video
+                                              controls
+                                              src={attachment.url}
+                                              className="mb-2 max-h-48 w-full rounded border border-slate-200"
+                                            />
+                                          )}
+                                          {attachmentType === "audio" && (
+                                            <audio
+                                              controls
+                                              src={attachment.url}
+                                              className="mb-2 w-full"
+                                            />
+                                          )}
+                                          {attachmentType === "pdf" && (
+                                            <iframe
+                                              title={displayName}
+                                              src={attachment.url}
+                                              className="mb-2 h-48 w-full rounded border border-slate-200 bg-white"
+                                            />
+                                          )}
+
+                                          <div className="flex flex-wrap items-center justify-between gap-2">
+                                            <div className="min-w-0">
+                                              <p
+                                                className="truncate text-xs font-medium text-slate-700"
+                                                title={displayName}
+                                              >
+                                                {displayName}
+                                              </p>
+                                              <p className="text-[10px] text-slate-500">
+                                                {attachmentType.toUpperCase()}
+                                                {sizeLabel ? ` | ${sizeLabel}` : ""}
+                                              </p>
+                                            </div>
+                                            <div className="flex items-center gap-1.5">
+                                              <button
+                                                type="button"
+                                                onClick={() =>
+                                                  window.open(
+                                                    attachment.url,
+                                                    "_blank",
+                                                    "noopener,noreferrer"
+                                                  )
+                                                }
+                                                className="rounded border border-slate-300 bg-white px-2 py-1 text-[10px] font-medium text-slate-700 hover:bg-slate-50"
+                                              >
+                                                Open
+                                              </button>
+                                              <button
+                                                type="button"
+                                                onClick={() =>
+                                                  downloadFile(attachment.url, displayName)
+                                                }
+                                                className="rounded border border-slate-300 bg-white px-2 py-1 text-[10px] font-medium text-slate-700 hover:bg-slate-50"
+                                              >
+                                                Download
+                                              </button>
+                                            </div>
+                                          </div>
                                         </div>
                                       );
-                                    })()}
+                                    })}
                                   </div>
+                                )}
 
-                                  <div className="flex justify-end">
-                                    <button
-                                      type="button"
-                                      onClick={() => submitTaskComment(task._id)}
-                                      disabled={submittingCommentTaskId === task._id}
-                                      className={`rounded px-2.5 py-1.5 text-xs font-medium text-white ${
-                                        submittingCommentTaskId === task._id
-                                          ? "cursor-not-allowed bg-orange-300"
-                                          : "bg-orange-500 hover:bg-orange-600"
-                                      }`}
-                                    >
-                                      {submittingCommentTaskId === task._id
-                                        ? "Posting..."
-                                        : "Post Comment"}
-                                    </button>
-                                  </div>
-                                </div>
-                              )}
-                            </div>
+                                <p className="mt-2 text-xs text-gray-500">
+                                  Created by {creatorName} | Deadline {" "}
+                                  {moment(task.deadline).format("DD MMM YYYY, HH:mm")}
+                                </p>
+                              </>
+                            )}
 
-                            <div className="mt-3 rounded border border-slate-200 bg-slate-50">
+                            <div className="mt-2 flex flex-wrap items-center gap-2">
                               <button
                                 type="button"
-                                onClick={() => toggleActivity(task._id)}
-                                className="flex w-full items-center justify-between px-2.5 py-2 text-xs font-semibold text-slate-700"
+                                onClick={() => openTaskDrawer(task._id, "comments")}
+                                className="rounded border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
                               >
-                                <span>Activity Timeline ({task.activityLog?.length || 0})</span>
-                                <span>{openActivityByTask[task._id] ? "-" : "+"}</span>
+                                Comments ({taskCommentCount})
                               </button>
-
-                              {openActivityByTask[task._id] && (
-                                <div className="space-y-2 border-t border-slate-200 px-2.5 py-2">
-                                  {(task.activityLog || []).length === 0 && (
-                                    <p className="text-[11px] text-slate-500">No activity yet.</p>
-                                  )}
-
-                                  {(task.activityLog || [])
-                                    .slice()
-                                    .reverse()
-                                    .map((activity, index) => (
-                                      <div key={activity._id || `${activity.action}-${activity.createdAt}-${index}`}>
-                                        <div className="rounded border border-slate-200 bg-white px-2 py-1.5">
-                                          <div className="mb-1 flex items-center justify-between gap-2">
-                                            <span
-                                              className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${getActivityActionClass(
-                                                activity.action
-                                              )}`}
-                                            >
-                                              {formatActivityActionLabel(activity.action)}
-                                            </span>
-                                            <span className="text-[10px] text-slate-500">
-                                              {moment(activity.createdAt).format("DD MMM, HH:mm")}
-                                            </span>
-                                          </div>
-                                          <p className="text-xs text-slate-700">
-                                            {activity.message || "Task updated."}
-                                          </p>
-                                          <p className="mt-1 text-[10px] text-slate-500">
-                                            By {activity.actorUser?.name || "System"}
-                                          </p>
-                                        </div>
-                                      </div>
-                                    ))}
-                                </div>
-                              )}
+                              <button
+                                type="button"
+                                onClick={() => openTaskDrawer(task._id, "activity")}
+                                className="rounded border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                              >
+                                Activity ({taskActivityCount})
+                              </button>
                             </div>
 
-                            <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-2">
-                              <select
-                                value={assigneeId || ""}
-                                onChange={(event) =>
-                                  patchTask(task._id, { assignedTo: event.target.value })
-                                }
-                                className="border border-gray-300 rounded px-2 py-2 text-sm outline-none"
-                                disabled={updatingTaskId === task._id}
-                              >
-                                {memberOptions.map((member) => (
-                                  <option key={member.id} value={member.id}>
-                                    {member.name}
-                                  </option>
-                                ))}
-                              </select>
+                            {showQuickEdit && (
+                              <div className="mt-3 grid grid-cols-1 gap-2 border-t border-gray-100 pt-2 md:grid-cols-3">
+                                <select
+                                  value={assigneeId || ""}
+                                  onChange={(event) =>
+                                    patchTask(task._id, { assignedTo: event.target.value })
+                                  }
+                                  className="border border-gray-300 rounded px-2 py-2 text-sm outline-none"
+                                  disabled={updatingTaskId === task._id}
+                                >
+                                  {memberOptions.map((member) => (
+                                    <option key={member.id} value={member.id}>
+                                      {member.name}
+                                    </option>
+                                  ))}
+                                </select>
 
-                              <input
-                                type="datetime-local"
-                                value={toInputDateTime(task.deadline)}
-                                onChange={(event) =>
-                                  patchTask(task._id, {
-                                    deadline: new Date(event.target.value).toISOString(),
-                                  })
-                                }
-                                className="border border-gray-300 rounded px-2 py-2 text-sm outline-none"
-                                disabled={updatingTaskId === task._id}
-                              />
+                                <input
+                                  type="datetime-local"
+                                  value={toInputDateTime(task.deadline)}
+                                  onChange={(event) =>
+                                    patchTask(task._id, {
+                                      deadline: new Date(event.target.value).toISOString(),
+                                    })
+                                  }
+                                  className="border border-gray-300 rounded px-2 py-2 text-sm outline-none"
+                                  disabled={updatingTaskId === task._id}
+                                />
 
-                              <select
-                                value={task.status}
-                                onChange={(event) =>
-                                  patchTask(task._id, { status: event.target.value })
-                                }
-                                className="border border-gray-300 rounded px-2 py-2 text-sm outline-none"
-                                disabled={updatingTaskId === task._id}
-                              >
-                                {STATUS_OPTIONS.map((status) => (
-                                  <option key={status} value={status}>
-                                    {status}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
+                                <select
+                                  value={task.status}
+                                  onChange={(event) =>
+                                    patchTask(task._id, { status: event.target.value })
+                                  }
+                                  className="border border-gray-300 rounded px-2 py-2 text-sm outline-none"
+                                  disabled={updatingTaskId === task._id}
+                                >
+                                  {STATUS_OPTIONS.map((status) => (
+                                    <option key={status} value={status}>
+                                      {status}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            )}
 
                             {updatingTaskId === task._id && (
                               <p className="mt-2 text-xs text-gray-500">Updating task...</p>
@@ -1924,6 +1910,191 @@ const ChannelTaskManager = ({
                 </div>
               );
             })}
+        </div>
+      )}
+
+      {taskDrawer.open && selectedDrawerTask && (
+        <div
+          className="fixed inset-0 z-[70] bg-black/40"
+          onClick={closeTaskDrawer}
+        >
+          <div
+            className="absolute inset-y-0 right-0 flex w-full max-w-full flex-col border-l border-slate-200 bg-white shadow-xl sm:w-[420px] md:w-[460px]"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-start justify-between border-b border-slate-200 px-3 py-3">
+              <div className="min-w-0">
+                <p className="text-[11px] font-semibold text-slate-500">
+                  {selectedDrawerTask.taskNumber || "Task"}
+                </p>
+                <h4 className="truncate text-sm font-semibold text-slate-800">
+                  {selectedDrawerTask.title || "Task Details"}
+                </h4>
+              </div>
+              <button
+                type="button"
+                onClick={closeTaskDrawer}
+                className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="flex items-center gap-2 border-b border-slate-200 px-3 py-2">
+              <button
+                type="button"
+                onClick={() => switchTaskDrawerTab("comments")}
+                className={`rounded px-2.5 py-1 text-xs font-medium ${
+                  taskDrawer.tab === "comments"
+                    ? "bg-orange-500 text-white"
+                    : "border border-slate-300 text-slate-700 hover:bg-slate-50"
+                }`}
+              >
+                Comments ({selectedDrawerTask.comments?.length || 0})
+              </button>
+              <button
+                type="button"
+                onClick={() => switchTaskDrawerTab("activity")}
+                className={`rounded px-2.5 py-1 text-xs font-medium ${
+                  taskDrawer.tab === "activity"
+                    ? "bg-orange-500 text-white"
+                    : "border border-slate-300 text-slate-700 hover:bg-slate-50"
+                }`}
+              >
+                Activity ({selectedDrawerTask.activityLog?.length || 0})
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-3 py-3">
+              {taskDrawer.tab === "comments" && (
+                <div className="space-y-2">
+                  {(selectedDrawerTask.comments || []).length === 0 && (
+                    <p className="text-[11px] text-slate-500">No comments yet.</p>
+                  )}
+                  {(selectedDrawerTask.comments || []).map((comment) => (
+                    <div
+                      key={comment._id || `${comment.author}-${comment.createdAt}`}
+                      className="rounded border border-slate-200 bg-white px-2 py-1.5"
+                    >
+                      <div className="mb-0.5 flex items-center justify-between gap-2">
+                        <span className="truncate text-[11px] font-semibold text-slate-700">
+                          {comment.authorUser?.name || "Unknown"}
+                        </span>
+                        <span className="text-[10px] text-slate-500">
+                          {moment(comment.createdAt).format("DD MMM, HH:mm")}
+                        </span>
+                      </div>
+                      <p className="whitespace-pre-wrap break-words text-xs text-slate-700">
+                        {comment.content}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {taskDrawer.tab === "activity" && (
+                <div className="space-y-2">
+                  {(selectedDrawerTask.activityLog || []).length === 0 && (
+                    <p className="text-[11px] text-slate-500">No activity yet.</p>
+                  )}
+                  {(selectedDrawerTask.activityLog || [])
+                    .slice()
+                    .reverse()
+                    .map((activity, index) => (
+                      <div key={activity._id || `${activity.action}-${activity.createdAt}-${index}`}>
+                        <div className="rounded border border-slate-200 bg-white px-2 py-1.5">
+                          <div className="mb-1 flex items-center justify-between gap-2">
+                            <span
+                              className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${getActivityActionClass(
+                                activity.action
+                              )}`}
+                            >
+                              {formatActivityActionLabel(activity.action)}
+                            </span>
+                            <span className="text-[10px] text-slate-500">
+                              {moment(activity.createdAt).format("DD MMM, HH:mm")}
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-700">
+                            {activity.message || "Task updated."}
+                          </p>
+                          <p className="mt-1 text-[10px] text-slate-500">
+                            By {activity.actorUser?.name || "System"}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              )}
+            </div>
+
+            {taskDrawer.tab === "comments" && (
+              <div className="border-t border-slate-200 px-3 py-3">
+                <div className="relative">
+                  <textarea
+                    value={commentDraftByTask[selectedDrawerTask._id] || ""}
+                    onChange={(event) =>
+                      updateCommentDraft(selectedDrawerTask._id, event.target.value)
+                    }
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" && !event.shiftKey) {
+                        event.preventDefault();
+                        submitTaskComment(selectedDrawerTask._id);
+                      }
+                    }}
+                    placeholder="Add comment... use @ to mention (e.g. @[John])"
+                    className="w-full resize-y rounded border border-gray-300 px-2 py-1.5 text-xs outline-none min-h-[72px]"
+                  />
+
+                  {(() => {
+                    const mentionQuery = getMentionQuery(
+                      commentDraftByTask[selectedDrawerTask._id] || ""
+                    );
+                    if (mentionQuery === null) return null;
+                    const suggestions = memberOptions
+                      .filter((member) =>
+                        (member.name || "").toLowerCase().includes(mentionQuery)
+                      )
+                      .slice(0, 6);
+                    if (suggestions.length === 0) return null;
+
+                    return (
+                      <div className="absolute bottom-full left-0 z-10 mb-1 w-full rounded border border-slate-200 bg-white shadow-md">
+                        {suggestions.map((member) => (
+                          <button
+                            key={member.id}
+                            type="button"
+                            onClick={() =>
+                              insertMentionIntoDraft(selectedDrawerTask._id, member)
+                            }
+                            className="block w-full px-2 py-1.5 text-left text-xs text-slate-700 hover:bg-slate-100"
+                          >
+                            {member.name}
+                          </button>
+                        ))}
+                      </div>
+                    );
+                  })()}
+                </div>
+                <div className="mt-2 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => submitTaskComment(selectedDrawerTask._id)}
+                    disabled={submittingCommentTaskId === selectedDrawerTask._id}
+                    className={`rounded px-2.5 py-1.5 text-xs font-medium text-white ${
+                      submittingCommentTaskId === selectedDrawerTask._id
+                        ? "cursor-not-allowed bg-orange-300"
+                        : "bg-orange-500 hover:bg-orange-600"
+                    }`}
+                  >
+                    {submittingCommentTaskId === selectedDrawerTask._id
+                      ? "Posting..."
+                      : "Post Comment"}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </>
