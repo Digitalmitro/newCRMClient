@@ -2,6 +2,7 @@ import { Link, useNavigate, useLocation } from "react-router-dom";
 import arrow from "../../../assets/desktop/arrow.svg";
 import edit from "../../../assets/desktop/edit.svg";
 import logo from "../../../assets/desktop/logo.svg";
+import { FiChevronLeft, FiChevronRight } from "react-icons/fi";
 import { useAuth } from "../../../context/authContext";
 import { useEffect, useState } from "react";
 import socket from "../../../utils/socket";
@@ -18,6 +19,7 @@ const getStableColor = (text = "DM") => {
 };
 
 function Sidebarpart() {
+  const SIDEBAR_PREF_KEY = "dm_client_desktop_sidebar_collapsed";
   const { getChannels } = useAuth();
   const location = useLocation();
   const [employees, setEmployees] = useState([]);
@@ -25,6 +27,13 @@ function Sidebarpart() {
   const [unreadMessages, setUnreadMessages] = useState({});
   const { getAllUsers,userData } = useAuth();
   const [openChatId, setOpenChatId] = useState(null);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem(SIDEBAR_PREF_KEY) === "1";
+    } catch (error) {
+      return false;
+    }
+  });
   const navigate = useNavigate();
 
   const channel = async () => {
@@ -93,9 +102,17 @@ function Sidebarpart() {
     });
   };
 
+  const toggleSidebar = () => {
+    setIsSidebarCollapsed((prev) => {
+      const next = !prev;
+      localStorage.setItem(SIDEBAR_PREF_KEY, next ? "1" : "0");
+      return next;
+    });
+  };
+
   return (
     <div className="flex h-screen overflow-hidden">
-      <div className="h-screen px-3 pt-2 border border-orange-400 flex flex-col justify-between items-center">
+      <div className="relative h-screen px-3 pt-2 border border-orange-400 flex flex-col justify-between items-center">
         <nav className="flex flex-col gap-1 items-center">
           <Link to="/" className="flex items-center">
             <div className="">
@@ -108,9 +125,25 @@ function Sidebarpart() {
             {userData?.name?.charAt(0)}
           </p>
         </div>
+
+        <button
+          type="button"
+          onClick={toggleSidebar}
+          className="absolute -right-3 top-24 z-20 flex h-6 w-6 items-center justify-center rounded-full border border-orange-300 bg-white text-gray-700 shadow-sm hover:bg-orange-50"
+          title={isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+          aria-label={isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+        >
+          {isSidebarCollapsed ? <FiChevronRight size={14} /> : <FiChevronLeft size={14} />}
+        </button>
       </div>
 
-      <div className="bg-gray-200 w-[250px] p-4 border border-orange-400 h-screen flex flex-col overflow-hidden">
+      <div
+        className={`bg-gray-200 border border-orange-400 h-screen flex flex-col overflow-hidden transition-all duration-300 ${
+          isSidebarCollapsed ? "w-0 p-0 opacity-0 border-l-0 border-r-0 pointer-events-none" : "w-[250px] p-4 opacity-100"
+        }`}
+      >
+        {!isSidebarCollapsed && (
+          <>
         <div className="flex justify-between items-center pt-4 mb-4">
           <h2 className="text-[18px] font-medium   flex gap-2">
             {userData?.name}
@@ -199,6 +232,8 @@ function Sidebarpart() {
             </button>
           </div>
         </div>
+          </>
+        )}
       </div>
     </div>
   );
