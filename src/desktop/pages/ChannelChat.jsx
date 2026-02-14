@@ -16,6 +16,7 @@ import { downloadFile, downloadImage, getFileNameFromUrl } from "../../utils/hel
 import ChannelTaskManager from "../Components/Channel/ChannelTaskManager";
 
 const TASK_NUMBER_REGEX = /\bTASK-\d{4}\b/i;
+const TASK_STATUS_OPTIONS = ["Assigned", "Acknowledged", "Completed"];
 
 const ChannelChat = () => {
   const { userData } = useAuth();
@@ -620,9 +621,6 @@ const ChannelChat = () => {
           const taskNumber = msg?.isSystem ? extractTaskNumber(msg?.message) : "";
           const linkedTask = taskNumber ? taskByNumber[taskNumber] : null;
           const isTaskActionLoading = taskNumber ? !!taskActionLoading[taskNumber] : false;
-          const canAcknowledge = linkedTask?.status === "Assigned";
-          const canComplete =
-            linkedTask?.status === "Assigned" || linkedTask?.status === "Acknowledged";
           const senderLabel = msg?.isSystem
             ? msg.systemLabel || "System"
             : isSelf
@@ -723,33 +721,26 @@ const ChannelChat = () => {
                         >
                           View Task
                         </button>
-                        {canAcknowledge && (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              handleTaskQuickStatusChange(taskNumber, "Acknowledged")
-                            }
-                            disabled={isTaskActionLoading}
-                            className="rounded border border-blue-300 bg-blue-50 px-2 py-1 text-[10px] font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-60"
-                          >
-                            Acknowledge
-                          </button>
-                        )}
-                        {canComplete && (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              handleTaskQuickStatusChange(taskNumber, "Completed")
-                            }
-                            disabled={isTaskActionLoading}
-                            className="rounded border border-green-300 bg-green-50 px-2 py-1 text-[10px] font-medium text-green-700 hover:bg-green-100 disabled:opacity-60"
-                          >
-                            Complete
-                          </button>
-                        )}
-                        <span className="rounded bg-slate-100 px-1.5 py-1 text-[10px] font-semibold text-slate-600">
-                          {linkedTask?.status || "Syncing..."}
-                        </span>
+                        <select
+                          value={linkedTask?.status || "Syncing..."}
+                          onChange={(event) => {
+                            const nextStatus = event.target.value;
+                            if (!linkedTask || nextStatus === linkedTask.status) return;
+                            handleTaskQuickStatusChange(taskNumber, nextStatus);
+                          }}
+                          disabled={!linkedTask || isTaskActionLoading}
+                          className="rounded border border-slate-300 bg-white px-2 py-1 text-[10px] font-medium text-slate-700 disabled:opacity-60"
+                        >
+                          {linkedTask ? (
+                            TASK_STATUS_OPTIONS.map((statusOption) => (
+                              <option key={statusOption} value={statusOption}>
+                                {statusOption}
+                              </option>
+                            ))
+                          ) : (
+                            <option value="Syncing...">Syncing...</option>
+                          )}
+                        </select>
                       </div>
                       {linkedTask && (
                         <p className="mt-1 text-[10px] text-slate-500">
