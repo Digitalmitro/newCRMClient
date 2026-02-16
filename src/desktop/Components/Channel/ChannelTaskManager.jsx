@@ -172,6 +172,7 @@ const ChannelTaskManager = ({
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [updatingTaskId, setUpdatingTaskId] = useState(null);
+  const [deletingTaskId, setDeletingTaskId] = useState(null);
   const [error, setError] = useState("");
   const [collapsedMonths, setCollapsedMonths] = useState({});
   const [highlightTaskNumber, setHighlightTaskNumber] = useState("");
@@ -301,6 +302,7 @@ const ChannelTaskManager = ({
     setIsEditModalOpen(false);
     setIsUploadingCreateAttachments(false);
     setIsUploadingEditAttachments(false);
+    setDeletingTaskId(null);
     setCommentDraftByTask({});
     setCommentMentionsByTask({});
     setSubmittingCommentTaskId(null);
@@ -722,6 +724,69 @@ const ChannelTaskManager = ({
       return false;
     } finally {
       setUpdatingTaskId(null);
+    }
+  };
+
+  const handleDeleteTask = async (task) => {
+    if (!task?._id) return;
+    const taskLabel = task.taskNumber || task.title || "this task";
+    const shouldDelete = window.confirm(
+      `Delete ${taskLabel}?\n\nThis action cannot be undone.`
+    );
+    if (!shouldDelete) return;
+
+    setDeletingTaskId(task._id);
+    setError("");
+
+    try {
+      const response = await fetch(
+        `${import.meta.env.VITE_BACKEND_API}/channels/${channelId}/tasks/${task._id}`,
+        {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setError(data?.message || "Unable to delete task.");
+        return;
+      }
+
+      if (taskDrawer.open && taskDrawer.taskId === task._id) {
+        setTaskDrawer({ open: false, taskId: "", tab: "comments" });
+      }
+      if (isEditModalOpen && editTask.id === task._id) {
+        setIsEditModalOpen(false);
+      }
+      setOpenTaskDetailsById((prev) => {
+        const next = { ...prev };
+        delete next[task._id];
+        return next;
+      });
+      setOpenQuickEditById((prev) => {
+        const next = { ...prev };
+        delete next[task._id];
+        return next;
+      });
+      setCommentDraftByTask((prev) => {
+        const next = { ...prev };
+        delete next[task._id];
+        return next;
+      });
+      setCommentMentionsByTask((prev) => {
+        const next = { ...prev };
+        delete next[task._id];
+        return next;
+      });
+
+      fetchTasks();
+    } catch (deleteError) {
+      setError("Unable to delete task.");
+    } finally {
+      setDeletingTaskId(null);
     }
   };
 
@@ -1674,9 +1739,17 @@ const ChannelTaskManager = ({
                                   type="button"
                                   onClick={() => openEditModal(task)}
                                   className="text-xs px-2 py-1 rounded border border-slate-300 text-slate-600 hover:bg-slate-50"
-                                  disabled={updatingTaskId === task._id}
+                                  disabled={updatingTaskId === task._id || deletingTaskId === task._id}
                                 >
                                   Edit
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteTask(task)}
+                                  className="text-xs px-2 py-1 rounded border border-red-200 text-red-600 hover:bg-red-50"
+                                  disabled={updatingTaskId === task._id || deletingTaskId === task._id}
+                                >
+                                  {deletingTaskId === task._id ? "Deleting..." : "Delete"}
                                 </button>
                                 <button
                                   type="button"

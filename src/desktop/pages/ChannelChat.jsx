@@ -45,6 +45,7 @@ const ChannelChat = () => {
   const [taskFocusNumber, setTaskFocusNumber] = useState("");
   const [taskFocusSignal, setTaskFocusSignal] = useState(0);
   const token = localStorage.getItem("token");
+  const messageListRef = useRef(null);
   const messagesEndRef = useRef(null);
   const messageRefs = useRef({});
   const highlightTimerRef = useRef(null);
@@ -197,22 +198,47 @@ const ChannelChat = () => {
     return unsubscribe;
   }, [channelId, extractTaskNumber, fetchTaskIndex]);
 
-  const scrollToLatestMessage = (behavior = "smooth") => {
-    messagesEndRef.current?.scrollIntoView({ behavior, block: "end" });
-  };
+  const scrollToLatestMessage = useCallback((behavior = "auto") => {
+    const listContainer = messageListRef.current;
 
-  useEffect(() => {
-    if (activeTab !== "chat") return;
-    scrollToLatestMessage("smooth");
-  }, [messages, activeTab]);
+    if (listContainer) {
+      if (behavior === "smooth" && typeof listContainer.scrollTo === "function") {
+        listContainer.scrollTo({ top: listContainer.scrollHeight, behavior: "smooth" });
+      } else {
+        listContainer.scrollTop = listContainer.scrollHeight;
+      }
+    }
 
-  useEffect(() => {
-    if (activeTab !== "chat") return;
-    const timer = setTimeout(() => {
+    messagesEndRef.current?.scrollIntoView({
+      behavior: behavior === "smooth" ? "smooth" : "auto",
+      block: "end",
+    });
+  }, []);
+
+  const queueBottomScroll = useCallback(() => {
+    scrollToLatestMessage("auto");
+    let nestedRaf = 0;
+    const raf = requestAnimationFrame(() => {
       scrollToLatestMessage("auto");
-    }, 0);
-    return () => clearTimeout(timer);
-  }, [activeTab]);
+      nestedRaf = requestAnimationFrame(() => scrollToLatestMessage("auto"));
+    });
+    const timerA = setTimeout(() => scrollToLatestMessage("auto"), 100);
+    const timerB = setTimeout(() => scrollToLatestMessage("auto"), 260);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      if (nestedRaf) {
+        cancelAnimationFrame(nestedRaf);
+      }
+      clearTimeout(timerA);
+      clearTimeout(timerB);
+    };
+  }, [scrollToLatestMessage]);
+
+  useEffect(() => {
+    if (activeTab !== "chat") return;
+    return queueBottomScroll();
+  }, [activeTab, channelId, messages.length, queueBottomScroll]);
 
   useEffect(() => {
     if (!file) {
@@ -616,7 +642,7 @@ const ChannelChat = () => {
 
       {activeTab === "chat" && (
       <>
-      <div className="flex-1 px-3 lg:px-4 overflow-y-auto scrollable pb-2">
+      <div ref={messageListRef} className="flex-1 px-3 lg:px-4 overflow-y-auto scrollable pb-2">
         {messages.map((msg, index) => {
           const isSelf = String(msg.sender) === String(senderId);
           const taskNumber = msg?.isSystem ? extractTaskNumber(msg?.message) : "";
