@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import search from "../../../assets/desktop/search.svg";
-import notificationIcon from "../../../assets/desktop/bell.png"; // Notification icon
+import notificationIcon from "../../../assets/desktop/bell.png";
 import { IoIosClose } from "react-icons/io";
-import logo from "../../../assets/desktop/logo.svg"
+import logo from "../../../assets/desktop/logo.svg";
 import { onNotificationReceived } from "../../../utils/socket";
 import { MdLogout } from "react-icons/md";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../../context/authContext";
+
 function Searchbar() {
   const TASK_NOTIFICATION_TYPES = ["TASK_ASSIGNED", "TASK_COMPLETED", "TASK_OVERDUE"];
   const [unreadCount, setUnreadCount] = useState(0);
@@ -14,34 +15,35 @@ function Searchbar() {
   const [notification, setNotification] = useState([]);
   const { setToken } = useAuth();
   const token = localStorage.getItem("token");
-  const navigate=useNavigate();
-  
+  const navigate = useNavigate();
+
   useEffect(() => {
-    const unsubscribe = onNotificationReceived((notification) => {
-      setNotification((prev) => [notification, ...prev]); // Add new notification
-      setUnreadCount((prev) => prev + 1); // Increase unread count
+    const unsubscribe = onNotificationReceived((nextNotification) => {
+      setNotification((prev) => [nextNotification, ...prev]);
+      setUnreadCount((prev) => prev + 1);
     });
     return () => unsubscribe();
   }, []);
- 
+
   const toggleSidebar = () => {
     setIsSidebarOpen((prev) => !prev);
-    setUnreadCount(0)
+    setUnreadCount(0);
   };
 
-  const handleLogout=()=>{
+  const handleLogout = () => {
     localStorage.removeItem("token");
-    setToken(null); // Update AuthContext state
-  navigate("/login", { replace: true }); 
-  }
-
+    setToken(null);
+    navigate("/login", { replace: true });
+  };
 
   const handleNotification = (notify) => {
     if (!notify) return;
+
     if (notify.type === "CONCERN" || notify.type === "CONCERN_STATUS") {
       navigate("/concern");
       return;
     }
+
     if (notify.type === "DM") {
       if (!notify.sender) return;
       navigate("/chat", {
@@ -52,10 +54,11 @@ function Searchbar() {
       });
       return;
     }
+
     if (!notify.sender) return;
 
     if (TASK_NOTIFICATION_TYPES.includes(notify.type)) {
-      navigate("/channelchat", {
+      navigate(`/channelchat/${notify.sender}`, {
         state: {
           name: notify?.title,
           description: notify?.description,
@@ -66,7 +69,7 @@ function Searchbar() {
       return;
     }
 
-    navigate("/channelchat", {
+    navigate(`/channelchat/${notify.sender}`, {
       state: {
         name: notify?.title,
         description: notify?.description,
@@ -75,9 +78,9 @@ function Searchbar() {
     });
   };
 
-  const removeNotification=(index)=>{
+  const removeNotification = (index) => {
     setNotification(notification.filter((_, i) => i !== index));
-  }
+  };
 
   const clearAllNotifications = async () => {
     try {
@@ -95,12 +98,12 @@ function Searchbar() {
         setUnreadCount(0);
       }
     } catch (error) {
-      console.log(error);
+      console.error(error);
     }
   };
 
   useEffect(() => {
-    const notification = async () => {
+    const loadNotifications = async () => {
       try {
         const response = await fetch(
           `${import.meta.env.VITE_BACKEND_API}/notification/get-notifications`,
@@ -115,91 +118,110 @@ function Searchbar() {
           setNotification(data?.notifications);
         }
       } catch (error) {
-        console.log(error);
+        console.error(error);
       }
     };
-    notification();
+    loadNotifications();
   }, []);
 
   return (
-    <div className="w-full border-b-2 border-orange-400 pt-6 px-6 flex justify-between relative">
-      {/* Search Bar */}
-      <div className="mb-6 bg-[#E3E3E3] w-[700px] rounded flex gap-2 px-4">
-        <img src={search} alt="Search Icon" />
+    <div className="app-toolbar relative flex w-full items-center justify-between gap-4 px-5 pb-5 pt-5 lg:gap-6 lg:px-6">
+      <div className="app-search-shell flex max-w-3xl flex-1 items-center gap-3 rounded-2xl px-4 py-3">
+        <img src={search} alt="Search Icon" className="h-4 w-4 opacity-60" />
         <input
           type="text"
           placeholder="Search"
-          className="p-1 text-[13px] w-full border-none outline-none bg-transparent"
+          className="w-full bg-transparent text-sm text-slate-700 placeholder:text-slate-400"
         />
       </div>
 
-      {/* Notification Icon */}
-      <div className="flex gap-4">
-      <div className="relative cursor-pointer" onClick={toggleSidebar}>
-        <img src={notificationIcon} alt="Notifications" className="w-6 h-6" />
-        {unreadCount > 0 && (
-          <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs px-2 py-1 rounded-full">
-            {unreadCount}
-          </span>
-        )}
-      </div>
-      {/* logout */}
-      <div className="cursor-pointer" onClick={handleLogout}>
-      <MdLogout size={25}/>
-      </div>
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          className="app-icon-button relative h-10 w-10 rounded-full"
+          onClick={toggleSidebar}
+          aria-label="Open notifications"
+        >
+          <img src={notificationIcon} alt="Notifications" className="h-5 w-5" />
+          {unreadCount > 0 && (
+            <span className="absolute -right-1 -top-1 min-w-[1.2rem] rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+              {unreadCount}
+            </span>
+          )}
+        </button>
+        <button
+          type="button"
+          className="app-icon-button h-10 w-10 rounded-full"
+          onClick={handleLogout}
+          aria-label="Logout"
+        >
+          <MdLogout size={20} />
+        </button>
       </div>
 
-      {/* Notification Sidebar */}
       <div
-        className={`fixed top-0 right-0 w-80 h-full bg-white shadow-lg transition-transform transform ${
+        className={`notification-drawer fixed right-0 top-0 z-50 flex h-screen w-[380px] max-w-[calc(100vw-20px)] flex-col p-4 shadow-2xl transition-transform ${
           isSidebarOpen ? "translate-x-0" : "translate-x-full"
-        } p-4 z-50`}
+        }`}
       >
-          <div className="flex justify-between items-center pb-4 border-b">
-            <h2 className="text-lg font-semibold">Notifications</h2>
-            <button className="text-gray-600" onClick={clearAllNotifications} title="Clear all">
-            <IoIosClose size={32}/>
-            </button>
+        <div className="flex items-center justify-between border-b border-slate-200 pb-4">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-800">Notifications</h2>
+            <p className="mt-1 text-xs text-slate-500">
+              Review alerts and jump directly to the relevant screen.
+            </p>
           </div>
-        <div className="mt-4 space-y-3">
-      {notification.length > 0 ? (
-        notification.map((notify, i) => (
-          <div
-            key={i}
-            className="p-3 border border-gray-300 rounded-lg shadow-sm hover:bg-gray-100 transition flex justify-between items-center cursor-pointer"
-            onClick={() => handleNotification(notify)}
+          <button
+            type="button"
+            className="rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-600 transition hover:border-orange-300 hover:text-orange-600"
+            onClick={clearAllNotifications}
           >
-            <img src={logo} alt="" className="w-[40px]"/>
-            <div >
-            
-              <h3 className="text-sm font-semibold text-gray-700">{notify.title}</h3>
-              <p className="text-xs text-gray-500 mt-1">{notify.description}</p>
+            Clear all notifications
+          </button>
+        </div>
+
+        <div className="hide-scrollbar mt-4 flex-1 min-h-0 space-y-3 overflow-y-auto pr-1">
+          {notification.length > 0 ? (
+            notification.map((notify, i) => (
+              <div
+                key={i}
+                className="notification-card flex cursor-pointer items-start gap-3 rounded-2xl p-3"
+                onClick={() => handleNotification(notify)}
+              >
+                <img src={logo} alt="" className="h-10 w-10 shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <h3 className="truncate text-sm font-semibold text-slate-800">
+                    {notify.title}
+                  </h3>
+                  <p className="mt-1 break-words text-xs leading-5 text-slate-500">
+                    {notify.description}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="text-red-500 transition hover:text-red-700"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    removeNotification(i);
+                  }}
+                  aria-label="Dismiss notification"
+                >
+                  <IoIosClose size={24} />
+                </button>
+              </div>
+            ))
+          ) : (
+            <div className="notification-card rounded-2xl p-6 text-center">
+              <p className="text-sm font-semibold text-slate-700">All caught up</p>
+              <p className="mt-1 text-xs text-slate-500">No new notifications right now.</p>
             </div>
-
-            <button
-              className="text-red-500 text-xs font-bold px-2 py-1 hover:text-red-700"
-              onClick={(event) => {
-                event.stopPropagation();
-                removeNotification(i);
-              }}
-            >
-              <IoIosClose size={26}/>
-            </button>
-
-          </div>
-        ))
-      ) : (
-        <p className="text-sm text-gray-500 text-center">No new notifications</p>
-      )}
-    </div>
+          )}
+        </div>
       </div>
 
-      
-
-      {/* Overlay to close sidebar */}
       {isSidebarOpen && (
         <div
-          className="fixed inset-0 bg-black opacity-30 z-40"
+          className="fixed inset-0 z-40 bg-slate-950/25"
           onClick={toggleSidebar}
         ></div>
       )}

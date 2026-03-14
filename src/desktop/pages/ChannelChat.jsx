@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { IoPeopleSharp } from "react-icons/io5";
 import { Send, Paperclip, CornerUpLeft, X } from "lucide-react";
 import moment from "moment";
-import { useLocation } from "react-router";
+import { useLocation, useParams } from "react-router-dom";
 import { BsEmojiSmile } from "react-icons/bs";
 import EmojiPicker from "emoji-picker-react";
 import { IoMdShareAlt } from "react-icons/io";
@@ -21,8 +21,9 @@ const TASK_STATUS_OPTIONS = ["Assigned", "Acknowledged", "Completed"];
 const ChannelChat = () => {
   const { userData } = useAuth();
   const location = useLocation();
+  const { id: channelIdParam } = useParams();
   const groupUsers = location.state;
-  const channelId = groupUsers?.id;
+  const channelId = groupUsers?.id || channelIdParam;
   const senderId = userData?.userId;
   const [messages, setMessages] = useState([]);
   const [channelInfo, setChannelsInfo] = useState();
@@ -553,22 +554,22 @@ const ChannelChat = () => {
     );
   }
   return (
-    <div className="p-0 lg:p-4 w-full flex flex-col h-[calc(100vh-110px)] lg:h-[calc(100vh-60px)]">
+    <div className="p-0 lg:p-4 w-full flex flex-col h-[100dvh] md:h-[calc(100vh-110px)] lg:h-[calc(100vh-60px)]">
       {/* Header */}
-      <div className="mb-4 lg:mb-6 border-b pt-2 px-2 sm:px-3 lg:px-8 pb-2 w-full">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+      <div className="mb-2 lg:mb-6 border-b pt-1.5 px-2 sm:px-3 lg:px-8 pb-1.5 w-full">
+        <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
           <div className="min-w-0 flex items-start gap-2 sm:gap-4">
-            <p className="rounded-full border items-center text-[10px] sm:text-[12px] flex justify-center w-9 h-9 sm:w-10 sm:h-10 font-medium text-white bg-orange-500 shrink-0">
+            <p className="rounded-full border items-center text-[9px] sm:text-[12px] flex justify-center w-8 h-8 sm:w-10 sm:h-10 font-medium text-white bg-orange-500 shrink-0">
               Group
             </p>
             <div className="min-w-0">
-              <h2 className="text-sm font-semibold truncate">
+              <h2 className="text-[13px] sm:text-sm font-semibold truncate">
                 {channelDisplayName.charAt(0).toUpperCase() +
                   channelDisplayName.slice(1)}
               </h2>
               <div className="mt-0.5 flex items-center gap-2">
-                <p className="text-[10px] text-green-500 font-semibold">Active</p>
-                <div className="flex items-center gap-1 text-xs text-gray-700">
+                <p className="text-[9px] sm:text-[10px] text-green-500 font-semibold">Active</p>
+                <div className="flex items-center gap-1 text-[11px] sm:text-xs text-gray-700">
                   <IoPeopleSharp className="shrink-0" />
                   <p>({channelInfo?.members?.length ?? 0})</p>
                 </div>
@@ -576,12 +577,12 @@ const ChannelChat = () => {
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 lg:flex-nowrap lg:justify-end">
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 lg:flex-nowrap lg:justify-end">
             <div className="inline-flex rounded-lg border border-gray-200 bg-white p-1 min-w-0">
               <button
                 type="button"
                 onClick={() => setActiveTab("chat")}
-                className={`px-2.5 sm:px-3 py-1.5 text-xs sm:text-sm whitespace-nowrap rounded-md ${
+                className={`px-2 sm:px-3 py-1 text-[11px] sm:text-sm whitespace-nowrap rounded-md ${
                   activeTab === "chat"
                     ? "bg-orange-500 text-white"
                     : "text-gray-600 hover:bg-gray-100"
@@ -592,7 +593,7 @@ const ChannelChat = () => {
               <button
                 type="button"
                 onClick={() => setActiveTab("tasks")}
-                className={`px-2.5 sm:px-3 py-1.5 text-xs sm:text-sm whitespace-nowrap rounded-md ${
+                className={`px-2 sm:px-3 py-1 text-[11px] sm:text-sm whitespace-nowrap rounded-md ${
                   activeTab === "tasks"
                     ? "bg-orange-500 text-white"
                     : "text-gray-600 hover:bg-gray-100"
@@ -605,7 +606,7 @@ const ChannelChat = () => {
             <button
               type="button"
               onClick={() => setCreateTaskModalSignal((prev) => prev + 1)}
-              className="rounded-md bg-orange-500 px-3 py-1.5 text-xs sm:text-sm font-medium text-white hover:bg-orange-600"
+              className="rounded-md bg-orange-500 px-2.5 py-1 text-[11px] sm:px-3 sm:py-1.5 sm:text-sm font-medium text-white hover:bg-orange-600"
             >
               Create Task
             </button>
@@ -614,7 +615,7 @@ const ChannelChat = () => {
               <button
                 type="button"
                 onClick={handleShare}
-                className="p-1 text-gray-700 hover:text-gray-900"
+                className="p-1 text-[15px] sm:text-base text-gray-700 hover:text-gray-900"
               >
                 <IoMdShareAlt className="cursor-pointer" />
               </button>
@@ -671,7 +672,7 @@ const ChannelChat = () => {
       <>
       <div
         ref={messageListRef}
-        className="flex-1 px-3 lg:px-4 overflow-y-auto scrollable pb-2"
+        className="flex-1 px-2 lg:px-4 overflow-y-auto scrollable pb-2"
         onLoadCapture={handleMessageMediaLoaded}
         onLoadedMetadataCapture={handleMessageMediaLoaded}
       >
@@ -772,6 +773,9 @@ const ChannelChat = () => {
               )}
                   {taskNumber && (
                     <div className="mt-1.5 rounded-md border border-slate-200/80 bg-white/70 p-1.5">
+                      <p className="mb-1.5 text-[12px] font-semibold text-slate-900 break-words leading-4">
+                        {linkedTask?.title || "Task details syncing..."}
+                      </p>
                       <div className="flex flex-wrap items-center gap-1.5">
                         <button
                           type="button"

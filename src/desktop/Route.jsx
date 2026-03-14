@@ -47,6 +47,7 @@ function DesktopRouting() {
                     <Route path="/addCoworker" element={<AddCoworkers />} />
                     <Route path="/createChannel" element={<CreateChannel />} />
                     <Route path="/channelchat" element={<ChannelChat />} />
+                    <Route path="/channelchat/:id" element={<ChannelChat />} />
                     <Route path="/notifications" element={<NotificationPage />} />
                     <Route path="/notes" element={<NotesPage />} />
                   </Routes>

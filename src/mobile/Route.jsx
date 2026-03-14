@@ -45,6 +45,7 @@ function MobileRouting() {
           <Route path="/forgotClock" element={<ForgotClock />} />
           <Route path="/attendance-list" element={<AttendanceList />} />
           <Route path="/channelchat" element={<ChannelChat />} />
+          <Route path="/channelchat/:id" element={<ChannelChat />} />
           <Route path="/notification" element={<NotificationPage />} />
           <Route path="*" element={<Navigate to="/home" replace />} />
         </Route>

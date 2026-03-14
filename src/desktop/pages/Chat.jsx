@@ -373,14 +373,14 @@ const Chat = () => {
   };
 
   return (
-    <div className="p-0 lg:p-4 w-full flex flex-col h-[calc(100vh-110px)] lg:h-[calc(100vh-60px)]">
-      <div className="flex gap-3 lg:gap-4 mb-4 lg:mb-6 border-b pt-2 px-3 lg:px-8 pb-2 items-center">
-        <p className=" rounded-full border items-center  flex justify-center w-10 h-10 text-xl  text-white bg-orange-500">
+    <div className="p-0 lg:p-4 w-full flex flex-col h-[100dvh] md:h-[calc(100vh-110px)] lg:h-[calc(100vh-60px)]">
+      <div className="flex gap-2 lg:gap-4 mb-2 lg:mb-6 border-b pt-1.5 px-2 lg:px-8 pb-1.5 items-center">
+        <p className="rounded-full border items-center flex justify-center w-8 h-8 lg:w-10 lg:h-10 text-sm lg:text-xl text-white bg-orange-500 shrink-0">
           {user?.name?.charAt(0) || selectedUser?.[0]?.name?.charAt(0)}
         </p>
-        <div>
-          <h2 className="text-sm font-semibold">{user?.name}</h2>
-          <p className="text-[10px] text-green-500 font-semibold">{isOnline ? "Online" : "Offline"}</p>
+        <div className="min-w-0">
+          <h2 className="text-[13px] lg:text-sm font-semibold truncate">{user?.name}</h2>
+          <p className="text-[9px] lg:text-[10px] text-green-500 font-semibold">{isOnline ? "Online" : "Offline"}</p>
         </div>
         <div className="ml-auto">
           {/* TODO: Re-enable Clear chat when we finalize this feature. */}
@@ -393,7 +393,7 @@ const Chat = () => {
         </div>
       </div>
 
-      <div className="flex-1 px-3 lg:px-4 overflow-y-auto scrollable pb-2">
+      <div className="flex-1 px-2 lg:px-4 overflow-y-auto scrollable pb-2">
         {messages.map((msg, index) => {
           const isSelf = String(msg.sender) === String(senderId);
           const senderLabel = isSelf ? "You" : user?.name || "Unknown";
