@@ -36,9 +36,9 @@ function DesktopRouting() {
           <Route
             path="*"
             element={
-              <div className="flex">
+              <div className="flex min-w-0">
                 <Sidebarpart />
-                <div className="flex-1 border border-orange-400 min-h-screen">
+                <div className="min-w-0 flex-1 border border-orange-400 min-h-screen">
                   <Searchbar />
                   <Routes>
                     <Route path="/home" element={<Home />} />
