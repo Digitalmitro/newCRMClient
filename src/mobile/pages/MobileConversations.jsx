@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+﻿import { useEffect, useState } from "react";
 import { useAuth } from "../../context/authContext";
 import { useNavigate } from "react-router-dom";
 import socket, { onSoftRefresh } from "../../utils/socket";
@@ -24,6 +24,10 @@ const MobileConversations = () => {
   const [activeTab, setActiveTab] = useState("messages");
   const navigate = useNavigate();
   const totalUnread = users.reduce((sum, user) => sum + (user?.unreadMessages || 0), 0);
+  const totalChannelUnread = channels.reduce(
+    (sum, channel) => sum + (channel?.unreadMessages || 0),
+    0
+  );
 
   useEffect(() => {
     const load = async () => {
@@ -96,10 +100,12 @@ const MobileConversations = () => {
                 className={`rounded-full px-1.5 py-0.5 text-[11px] font-bold ${
                   activeTab === "channels"
                     ? "bg-white/20 text-white"
+                    : totalChannelUnread > 0
+                    ? "bg-[#16a34a] text-white"
                     : "bg-[#eef2ff] text-[#475569]"
                 }`}
               >
-                {channels.length}
+                {totalChannelUnread > 0 ? totalChannelUnread : channels.length}
               </span>
             </button>
           </div>
@@ -162,34 +168,60 @@ const MobileConversations = () => {
             )
           )
         ) : channels.length > 0 ? (
-          channels.map((ch) => (
-            <button
-              key={ch?._id}
-              type="button"
-              className="flex w-full items-center gap-3 rounded-2xl border border-[#e8ebf2] bg-white px-3 py-3 text-left shadow-sm transition active:scale-[0.99]"
-              onClick={() =>
-                navigate(`/channelchat/${ch?._id}`, {
-                  state: { name: ch?.name, description: ch?.description, id: ch?._id },
-                })
-              }
-            >
-              <span
-                className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-sm font-semibold ${getAvatarTone(
-                  ch?.name || ""
-                )}`}
+          channels.map((channel) => {
+            const memberCount = Array.isArray(channel?.members)
+              ? channel.members.length
+              : 0;
+            const channelMeta =
+              channel?.unreadMessages > 0
+                ? `${memberCount} members • ${channel.unreadMessages} unread`
+                : `${memberCount} members`;
+
+            return (
+              <button
+                key={channel?._id}
+                type="button"
+                className="flex w-full items-center gap-3 rounded-2xl border border-[#e8ebf2] bg-white px-3 py-3 text-left shadow-sm transition active:scale-[0.99]"
+                onClick={() => {
+                  setChannels((prev) =>
+                    prev.map((item) =>
+                      item?._id?.toString() === channel?._id?.toString()
+                        ? { ...item, unreadMessages: 0 }
+                        : item
+                    )
+                  );
+                  navigate(`/channelchat/${channel?._id}`, {
+                    state: {
+                      name: channel?.name,
+                      description: channel?.description,
+                      id: channel?._id,
+                    },
+                  });
+                }}
               >
-                {ch?.name?.[0]?.toUpperCase() || "C"}
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-semibold text-[#1f2937]">
-                  {ch?.name}
+                <span
+                  className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-sm font-semibold ${getAvatarTone(
+                    channel?.name || ""
+                  )}`}
+                >
+                  {channel?.name?.[0]?.toUpperCase() || "C"}
                 </span>
-                <span className="mt-0.5 block text-xs text-[#6b7280]">
-                  {Array.isArray(ch?.members) ? ch.members.length : 0} members
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-semibold text-[#1f2937]">
+                    {channel?.name}
+                  </span>
+                  <span className="mt-0.5 block text-xs text-[#6b7280]">
+                    {channelMeta}
+                  </span>
                 </span>
-              </span>
-            </button>
-          ))
+                {channel?.unreadMessages > 0 && (
+                  <span className="shrink-0 rounded-full bg-[#16a34a] px-2 py-1 text-[11px] font-bold text-white">
+                    {channel.unreadMessages}
+                  </span>
+                )}
+              </button>
+            );
+          })
         ) : (
           renderEmptyState(
             "No channels available",

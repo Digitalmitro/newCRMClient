@@ -36,6 +36,10 @@ function Sidebarpart() {
     }
   });
   const navigate = useNavigate();
+  const totalChannelUnread = channels.reduce(
+    (sum, channel) => sum + (channel?.unreadMessages || 0),
+    0
+  );
 
   const channel = async () => {
     const data = await getChannels();
@@ -56,6 +60,7 @@ function Sidebarpart() {
     fetchUsers();
     socket.on("updateUnread", async () => {
       fetchUsers();
+      channel();
     });
 
     return () => {
@@ -92,6 +97,13 @@ function Sidebarpart() {
   };
 
   const handleChannelChat = (name, id) => {
+    setChannels((prev) =>
+      prev.map((channel) =>
+        channel?._id?.toString() === id?.toString()
+          ? { ...channel, unreadMessages: 0 }
+          : channel
+      )
+    );
     navigate(`/channelchat/${id}`, {
       state: {
         name,
@@ -162,8 +174,12 @@ function Sidebarpart() {
               <h3 className="text-[15px] font-bold text-gray-600 flex gap-2">
                 Channels <img src={arrow} alt="" className="w-[8px] pt-1" />
               </h3>
-              <span className="rounded-full bg-white px-2 py-0.5 text-[11px] font-medium text-gray-500">
-                {channels?.length || 0}
+              <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                totalChannelUnread > 0
+                  ? "bg-emerald-100 text-emerald-700"
+                  : "bg-white text-gray-500"
+              }`}>
+                {totalChannelUnread > 0 ? totalChannelUnread : channels?.length || 0}
               </span>
             </div>
             <ul className="mt-2 flex-1 min-h-0 overflow-y-auto hide-scrollbar">
@@ -183,7 +199,12 @@ function Sidebarpart() {
                       >
                         {channel?.name?.charAt(0).toUpperCase()}
                       </span>
-                      <span className="truncate">{channel.name}</span>
+                      <span className="truncate flex-1 min-w-0">{channel.name}</span>
+                      {channel?.unreadMessages > 0 && (
+                        <span className="shrink-0 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[11px] font-bold text-green-600">
+                          {channel.unreadMessages}
+                        </span>
+                      )}
                     </span>
                   </button>
                 </li>
