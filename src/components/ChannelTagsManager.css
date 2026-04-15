@@ -1,0 +1,227 @@
+.channel-tags-manager {
+  padding: 20px;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  max-width: 500px;
+  margin: 20px 0;
+}
+
+.channel-tags-manager h3 {
+  margin: 0 0 20px 0;
+  color: #212529;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.channel-tags-manager form {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.channel-tags-manager .form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.channel-tags-manager label {
+  font-size: 14px;
+  font-weight: 600;
+  color: #495057;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.channel-tags-manager .status-select {
+  padding: 10px 12px;
+  border: 1px solid #dee2e6;
+  border-radius: 6px;
+  font-size: 14px;
+  background: white;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.channel-tags-manager .status-select:focus {
+  outline: none;
+  border-color: #007bff;
+  box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1);
+}
+
+.channel-tags-manager .custom-tags-input {
+  display: flex;
+  gap: 10px;
+}
+
+.channel-tags-manager .custom-tags-input input {
+  flex: 1;
+  padding: 10px 12px;
+  border: 1px solid #dee2e6;
+  border-radius: 6px;
+  font-size: 14px;
+  transition: all 0.3s ease;
+}
+
+.channel-tags-manager .custom-tags-input input:focus {
+  outline: none;
+  border-color: #007bff;
+  box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1);
+}
+
+.channel-tags-manager .custom-tags-input input:disabled {
+  background: #f8f9fa;
+  color: #adb5bd;
+  cursor: not-allowed;
+}
+
+.channel-tags-manager .btn-add-tag {
+  padding: 10px 20px;
+  background: #007bff;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  transition: all 0.3s ease;
+}
+
+.channel-tags-manager .btn-add-tag:hover:not(:disabled) {
+  background: #0056b3;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 123, 255, 0.2);
+}
+
+.channel-tags-manager .btn-add-tag:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.channel-tags-manager .tags-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.channel-tags-manager .tag-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: linear-gradient(135deg, #e7f3ff 0%, #d5e8f7 100%);
+  border: 1px solid #b3d9f2;
+  border-radius: 20px;
+  font-size: 13px;
+  color: #0056b3;
+  animation: slideIn 0.3s ease;
+}
+
+.channel-tags-manager .tag-item span {
+  font-weight: 500;
+}
+
+.channel-tags-manager .btn-remove-tag {
+  background: none;
+  border: none;
+  color: #dc3545;
+  cursor: pointer;
+  padding: 0;
+  font-size: 16px;
+  transition: all 0.2s ease;
+}
+
+.channel-tags-manager .btn-remove-tag:hover {
+  color: #c82333;
+  transform: scale(1.2);
+}
+
+.channel-tags-manager .btn-save {
+  padding: 12px 24px;
+  background: linear-gradient(135deg, #28a745 0%, #1e7e34 100%);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 16px;
+  font-weight: 600;
+  transition: all 0.3s ease;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.channel-tags-manager .btn-save:hover:not(:disabled) {
+  background: linear-gradient(135deg, #1e7e34 0%, #145a27 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(40, 167, 69, 0.3);
+}
+
+.channel-tags-manager .btn-save:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.channel-tags-manager .error-message {
+  color: #dc3545;
+  padding: 10px;
+  background: #f8d7da;
+  border: 1px solid #f5c6cb;
+  border-radius: 4px;
+  font-size: 13px;
+  margin: 0;
+}
+
+.channel-tags-manager .success-message {
+  color: #155724;
+  padding: 10px;
+  background: #d4edda;
+  border: 1px solid #c3e6cb;
+  border-radius: 4px;
+  font-size: 13px;
+  margin: 0;
+  animation: slideDown 0.3s ease;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 600px) {
+  .channel-tags-manager {
+    padding: 15px;
+    max-width: 100%;
+  }
+
+  .channel-tags-manager .custom-tags-input {
+    flex-direction: column;
+  }
+
+  .channel-tags-manager .btn-add-tag {
+    width: 100%;
+  }
+
+  .channel-tags-manager .btn-save {
+    padding: 10px 20px;
+    font-size: 14px;
+  }
+}

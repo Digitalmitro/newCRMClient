@@ -1,0 +1,218 @@
+.message-actions {
+  position: relative;
+  display: inline-block;
+}
+
+.message-actions .actions-toggle {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 18px;
+  padding: 4px 8px;
+  color: #6c757d;
+  transition: all 0.2s ease;
+  border-radius: 4px;
+}
+
+.message-actions .actions-toggle:hover {
+  background: #f0f0f0;
+  color: #495057;
+}
+
+.message-actions .actions-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  background: white;
+  border: 1px solid #dee2e6;
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  z-index: 1000;
+  min-width: 120px;
+  overflow: hidden;
+}
+
+.message-actions .action-item {
+  display: block;
+  width: 100%;
+  padding: 10px 16px;
+  background: none;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.2s ease;
+  color: #495057;
+}
+
+.message-actions .action-item:hover {
+  background: #f8f9fa;
+  color: #212529;
+}
+
+.message-actions .action-item.edit {
+  border-bottom: 1px solid #dee2e6;
+}
+
+.message-actions .action-item.edit:hover {
+  background: #e7f3ff;
+  color: #007bff;
+}
+
+.message-actions .action-item.delete:hover {
+  background: #ffe7e7;
+  color: #dc3545;
+}
+
+.message-actions .edit-container {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: white;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  z-index: 2000;
+  padding: 20px;
+  width: 90%;
+  max-width: 500px;
+}
+
+.message-actions .edit-input {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #dee2e6;
+  border-radius: 6px;
+  font-size: 14px;
+  font-family: inherit;
+  resize: vertical;
+  min-height: 80px;
+  margin-bottom: 15px;
+  font-size: 14px;
+}
+
+.message-actions .edit-input:focus {
+  outline: none;
+  border-color: #007bff;
+  box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1);
+}
+
+.message-actions .edit-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.message-actions .btn-save,
+.message-actions .btn-cancel {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.message-actions .btn-save {
+  background: #28a745;
+  color: white;
+}
+
+.message-actions .btn-save:hover {
+  background: #218838;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(40, 167, 69, 0.2);
+}
+
+.message-actions .btn-cancel {
+  background: #6c757d;
+  color: white;
+}
+
+.message-actions .btn-cancel:hover {
+  background: #5a6268;
+}
+
+.message-actions .delete-confirm {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: white;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  z-index: 2000;
+  padding: 20px;
+  width: 90%;
+  max-width: 400px;
+  text-align: center;
+}
+
+.message-actions .delete-confirm p {
+  margin: 0 0 15px 0;
+  color: #495057;
+  font-size: 16px;
+}
+
+.message-actions .confirm-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+
+.message-actions .btn-confirm-delete,
+.message-actions .btn-cancel-delete {
+  padding: 8px 20px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.message-actions .btn-confirm-delete {
+  background: #dc3545;
+  color: white;
+}
+
+.message-actions .btn-confirm-delete:hover {
+  background: #c82333;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(220, 53, 69, 0.2);
+}
+
+.message-actions .btn-cancel-delete {
+  background: #6c757d;
+  color: white;
+}
+
+.message-actions .btn-cancel-delete:hover {
+  background: #5a6268;
+}
+
+.message-actions .error-message {
+  color: #dc3545;
+  padding: 10px;
+  background: #f8d7da;
+  border: 1px solid #f5c6cb;
+  border-radius: 4px;
+  margin: 10px 0 0 0;
+  font-size: 13px;
+}
+
+@media (max-width: 600px) {
+  .message-actions .edit-container,
+  .message-actions .delete-confirm {
+    width: 95%;
+    max-width: 100%;
+    padding: 15px;
+  }
+
+  .message-actions .actions-menu {
+    right: -10px;
+  }
+}
