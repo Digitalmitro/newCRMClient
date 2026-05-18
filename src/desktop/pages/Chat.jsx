@@ -58,7 +58,8 @@ const Chat = () => {
       })
         .then((r) => r.json())
         .then((d) => {
-          const found = d?.avatars?.find((a) => a._id?.toString() === receiverId?.toString());
+          // avatars is an object keyed by userId: { "id": { name, avatar } }
+          const found = d?.avatars?.[receiverId?.toString()];
           if (found?.avatar) setOtherAvatar(found.avatar);
         })
         .catch(() => {});
