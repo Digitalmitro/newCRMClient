@@ -35,18 +35,35 @@ const Chat = () => {
   const navigate = useNavigate();
   const { userData } = useAuth();
   const senderId = userData?.userId;
+
   // Fetch own profile to get self avatar (userData from JWT has no avatar)
   const [selfProfile, setSelfProfile] = useState(null);
+  // Fetch other person's avatar (location.state only has id+name, no avatar)
+  const [otherAvatar, setOtherAvatar] = useState("");
+
   useEffect(() => {
     const t = localStorage.getItem("token");
     if (!t) return;
+    // Own profile
     fetch(`${import.meta.env.VITE_BACKEND_API}/profile/me`, {
       headers: { Authorization: `Bearer ${t}` },
     })
       .then((r) => r.json())
       .then((d) => { if (d?.success) setSelfProfile(d.profile); })
       .catch(() => {});
-  }, []);
+    // Other person's profile via batch avatars endpoint
+    if (receiverId) {
+      fetch(`${import.meta.env.VITE_BACKEND_API}/profile/avatars?ids=${receiverId}`, {
+        headers: { Authorization: `Bearer ${t}` },
+      })
+        .then((r) => r.json())
+        .then((d) => {
+          const found = d?.avatars?.find((a) => a._id?.toString() === receiverId?.toString());
+          if (found?.avatar) setOtherAvatar(found.avatar);
+        })
+        .catch(() => {});
+    }
+  }, [receiverId]);
   const [isOnline, setIsOnline] = useState(false);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
@@ -545,7 +562,7 @@ const Chat = () => {
               <div className="flex items-start gap-2 mb-0.5 px-2">
                 <Avatar
                   name={isSelf ? (selfProfile?.name || userData?.name || "Me") : (user?.name || "")}
-                  src={isSelf ? (selfProfile?.avatar || "") : (user?.avatar || "")}
+                  src={isSelf ? (selfProfile?.avatar || "") : (otherAvatar || user?.avatar || "")}
                   size={36}
                   rounded="rounded-md"
                 />
