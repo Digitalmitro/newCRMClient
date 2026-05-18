@@ -11,7 +11,7 @@ import {
 import socket from "../../utils/socket";
 import { useAuth } from "../../context/authContext";
 import moment from "moment";
-import { BsEmojiSmile, BsPin, BsPinFill } from "react-icons/bs";
+import { BsEmojiSmile } from "react-icons/bs";
 import EmojiPicker from "emoji-picker-react";
 import { downloadFile, getFileNameFromUrl } from "../../utils/helper";
 import {
@@ -35,6 +35,18 @@ const Chat = () => {
   const navigate = useNavigate();
   const { userData } = useAuth();
   const senderId = userData?.userId;
+  // Fetch own profile to get self avatar (userData from JWT has no avatar)
+  const [selfProfile, setSelfProfile] = useState(null);
+  useEffect(() => {
+    const t = localStorage.getItem("token");
+    if (!t) return;
+    fetch(`${import.meta.env.VITE_BACKEND_API}/profile/me`, {
+      headers: { Authorization: `Bearer ${t}` },
+    })
+      .then((r) => r.json())
+      .then((d) => { if (d?.success) setSelfProfile(d.profile); })
+      .catch(() => {});
+  }, []);
   const [isOnline, setIsOnline] = useState(false);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
@@ -52,39 +64,9 @@ const Chat = () => {
   const [lightbox, setLightbox] = useState(null);
   const [replyTarget, setReplyTarget] = useState(null);
   const [highlightedId, setHighlightedId] = useState(null);
-  const [pinnedMessages, setPinnedMessages] = useState([]);
-  const [showPinned, setShowPinned] = useState(false);
   const [editingMessage, setEditingMessage] = useState(null);
   const [openMessageMenu, setOpenMessageMenu] = useState(null);
   const authHeader = { Authorization: `Bearer ${localStorage.getItem("token")}` };
-
-  // Fetch pinned DMs for this conversation
-  const fetchPinned = async () => {
-    if (!receiverId) return;
-    try {
-      const res = await axios.get(
-        `${import.meta.env.VITE_BACKEND_API}/message/pinned?with=${receiverId}`,
-        { headers: authHeader }
-      );
-      if (res.data?.success) setPinnedMessages(res.data.pinned || []);
-    } catch (_) {}
-  };
-
-  const handleTogglePin = async (msg) => {
-    try {
-      await axios.patch(
-        `${import.meta.env.VITE_BACKEND_API}/message/messages/${msg._id}/pin`,
-        {},
-        { headers: authHeader }
-      );
-      setMessages((prev) =>
-        prev.map((m) => (m._id === msg._id ? { ...m, isPinned: !m.isPinned } : m))
-      );
-      await fetchPinned();
-    } catch (err) {
-      console.error("Pin failed:", err);
-    }
-  };
 
   const markMessagesAsRead = async (senderId) => {
     try {
@@ -164,27 +146,14 @@ const Chat = () => {
     };
     socket.on("direct-message-updated", onMsgUpdate);
 
-    // Pin/unpin broadcasts (fix #5)
-    const onPinUpdate = ({ messageId, isPinned }) => {
-      setMessages((prev) =>
-        prev.map((m) => (m._id?.toString() === messageId?.toString() ? { ...m, isPinned } : m))
-      );
-      fetchPinned();
-    };
-    socket.on("dm-message-pinned", onPinUpdate);
-
     const statusListener = ({ userId, status }) => {
       if (userId === receiverId) setIsOnline(status === "online");
     };
     onUserStatusUpdate(statusListener);
 
-    // Fetch initial pinned messages
-    fetchPinned();
-
     return () => {
       unsubscribeMessage?.();
       socket.off("direct-message-updated", onMsgUpdate);
-      socket.off("dm-message-pinned", onPinUpdate);
       onUserStatusUpdate(() => {});
     };
   }, [senderId, receiverId]);
@@ -549,46 +518,6 @@ const Chat = () => {
         </div>
       </div>
 
-      {/* Pinned DMs banner — WhatsApp style (fix #5) */}
-      {pinnedMessages.length > 0 && (
-        <div className="px-3 lg:px-6 border-b border-surface-divider bg-surface-subtle">
-          <button
-            type="button"
-            onClick={() => setShowPinned((v) => !v)}
-            className="flex items-center justify-between w-full py-1.5 text-[12px] text-ink-muted hover:text-ink"
-          >
-            <span className="flex items-center gap-1.5 font-semibold">
-              <BsPinFill size={11} className="text-yellow-400" />
-              {pinnedMessages.length} pinned message{pinnedMessages.length !== 1 ? "s" : ""}
-            </span>
-            <span>{showPinned ? "▲ Hide" : "▼ Show"}</span>
-          </button>
-          {showPinned && (
-            <ul className="pb-2 space-y-1">
-              {pinnedMessages.map((pm) => (
-                <li
-                  key={pm._id}
-                  className="flex items-start gap-2 rounded-md bg-white border border-surface-divider px-2.5 py-1.5 text-[12px]"
-                >
-                  <BsPinFill size={11} className="text-yellow-400 mt-0.5 shrink-0" />
-                  <span className="flex-1 min-w-0 text-ink line-clamp-2">
-                    {pm.message || "[attachment]"}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => handleTogglePin(pm)}
-                    className="shrink-0 text-ink-faint hover:text-red-500 text-xs"
-                    title="Unpin"
-                  >
-                    ×
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
-
       <div className="flex-1 px-2 lg:px-4 overflow-y-auto slack-scroll pb-2">
         {messages.map((msg, index) => {
           const isSelf = String(msg.sender) === String(senderId);
@@ -615,8 +544,8 @@ const Chat = () => {
               )}
               <div className="flex items-start gap-2 mb-0.5 px-2">
                 <Avatar
-                  name={isSelf ? (userData?.name || "Me") : (user?.name || "")}
-                  src={isSelf ? (userData?.avatar || "") : (user?.avatar || "")}
+                  name={isSelf ? (selfProfile?.name || userData?.name || "Me") : (user?.name || "")}
+                  src={isSelf ? (selfProfile?.avatar || "") : (user?.avatar || "")}
                   size={36}
                   rounded="rounded-md"
                 />
@@ -657,16 +586,6 @@ const Chat = () => {
                           title="Reply"
                         >
                           <CornerUpLeft className="w-3 h-3" />
-                        </button>
-                      )}
-                      {!msg.isDeleted && (
-                        <button
-                          type="button"
-                          onClick={() => handleTogglePin(msg)}
-                          className={`opacity-0 group-hover:opacity-100 ${msg.isPinned ? "text-yellow-400 opacity-100" : "text-ink-faint hover:text-ink"}`}
-                          title={msg.isPinned ? "Unpin" : "Pin message"}
-                        >
-                          {msg.isPinned ? <BsPinFill size={12} /> : <BsPin size={12} />}
                         </button>
                       )}
                       {canMutate && (
