@@ -2,8 +2,8 @@ import React from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import Home from "./pages/Home";
 import Sidebarpart from "./Components/Sidebar/Sidebarpart";
-import Attendance from "./pages/Attendance";
 import Searchbar from "./Components/search/Searchbar";
+import Attendance from "./pages/Attendance";
 import Chat from "./pages/Chat";
 import CreateChannel from "./pages/CreateChannel";
 import Login from "./pages/Login";
@@ -40,6 +40,7 @@ function DesktopRouting() {
                 <Sidebarpart />
                 <div className="min-w-0 flex-1 border border-orange-400 min-h-screen">
                   <Searchbar />
+                  
                   <Routes>
                     <Route path="/home" element={<Home />} />
                     <Route path="/attendance" element={<Attendance />} />

@@ -1,24 +1,38 @@
 import { useEffect, useState, useRef } from "react";
 import axios from "axios";
-import { Send, Paperclip, CornerUpLeft, X } from "lucide-react";
-import { useLocation } from "react-router-dom";
+import { Send, Paperclip, CornerUpLeft, X, Pencil, Trash2 } from "lucide-react";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   onMessageReceived,
   connectSocket,
   onUserStatusUpdate,
   fetchOnlineUsers,
 } from "../../utils/socket";
+import socket from "../../utils/socket";
 import { useAuth } from "../../context/authContext";
 import moment from "moment";
-import { BsEmojiSmile } from "react-icons/bs";
+import { BsEmojiSmile, BsPin, BsPinFill } from "react-icons/bs";
 import EmojiPicker from "emoji-picker-react";
-import { downloadFile, downloadImage, getFileNameFromUrl } from "../../utils/helper";
+import { downloadFile, getFileNameFromUrl } from "../../utils/helper";
+import {
+  isImage,
+  isLikelyAttachment,
+  getMessagePreview,
+  isWithinEditWindow,
+  formatRemainingEditWindow,
+  tokenizeMessage,
+} from "../../utils/chatHelpers";
+import Avatar from "../Components/Common/Avatar";
+import FilePreview from "../Components/Common/FilePreview";
+import ImageGrid from "../Components/Common/ImageGrid";
+import Lightbox from "../Components/Common/Lightbox";
 
 const Chat = () => {
   const location = useLocation();
   const user = location.state;
   const receiverId = user?.id;
   const selectedUser = location?.state?.selectedUsers;
+  const navigate = useNavigate();
   const { userData } = useAuth();
   const senderId = userData?.userId;
   const [isOnline, setIsOnline] = useState(false);
@@ -29,13 +43,48 @@ const Chat = () => {
   const messageRefs = useRef({});
   const highlightTimerRef = useRef(null);
   const fileInputRef = useRef(null);
-  const [file, setFile] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [loading, setloading] = useState(false);
-  const [filePreviewUrl, setFilePreviewUrl] = useState(null);
+  // Pending attachments — array of { file, previewUrl } so multiple files can
+  // be queued before sending. The send flow groups them all into a single
+  // message with `attachments: []` (issue #4).
+  const [pendingFiles, setPendingFiles] = useState([]);
+  const [lightbox, setLightbox] = useState(null);
   const [replyTarget, setReplyTarget] = useState(null);
   const [highlightedId, setHighlightedId] = useState(null);
+  const [pinnedMessages, setPinnedMessages] = useState([]);
+  const [showPinned, setShowPinned] = useState(false);
+  const [editingMessage, setEditingMessage] = useState(null);
+  const [openMessageMenu, setOpenMessageMenu] = useState(null);
   const authHeader = { Authorization: `Bearer ${localStorage.getItem("token")}` };
+
+  // Fetch pinned DMs for this conversation
+  const fetchPinned = async () => {
+    if (!receiverId) return;
+    try {
+      const res = await axios.get(
+        `${import.meta.env.VITE_BACKEND_API}/message/pinned?with=${receiverId}`,
+        { headers: authHeader }
+      );
+      if (res.data?.success) setPinnedMessages(res.data.pinned || []);
+    } catch (_) {}
+  };
+
+  const handleTogglePin = async (msg) => {
+    try {
+      await axios.patch(
+        `${import.meta.env.VITE_BACKEND_API}/message/messages/${msg._id}/pin`,
+        {},
+        { headers: authHeader }
+      );
+      setMessages((prev) =>
+        prev.map((m) => (m._id === msg._id ? { ...m, isPinned: !m.isPinned } : m))
+      );
+      await fetchPinned();
+    } catch (err) {
+      console.error("Pin failed:", err);
+    }
+  };
 
   const markMessagesAsRead = async (senderId) => {
     try {
@@ -50,33 +99,30 @@ const Chat = () => {
   };
 
   useEffect(() => {
-    if (receiverId) {
-      markMessagesAsRead(receiverId);
-    }
+    if (receiverId) markMessagesAsRead(receiverId);
   }, [receiverId]);
 
   useEffect(() => {
     setReplyTarget(null);
     setHighlightedId(null);
+    setEditingMessage(null);
+    setInput("");
   }, [receiverId]);
 
   useEffect(() => {
     return () => {
-      if (highlightTimerRef.current) {
-        clearTimeout(highlightTimerRef.current);
-      }
+      if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
     };
   }, []);
 
   useEffect(() => {
     connectSocket();
-
     const fetchMessages = async () => {
       try {
         const res = await axios.get(
           `${import.meta.env.VITE_BACKEND_API}/message/messages/${senderId}/${receiverId}`
         );
-        setMessages(res.data?.messages);
+        setMessages(res.data?.messages || []);
       } catch (error) {
         console.error("Error fetching messages:", error);
       }
@@ -93,26 +139,52 @@ const Chat = () => {
         (newMessage.sender === senderId && newMessage.receiver === receiverId) ||
         (newMessage.sender === receiverId && newMessage.receiver === senderId)
       ) {
-        setMessages((prevMessages) => {
-          if (newMessage?._id && prevMessages.some((msg) => msg._id === newMessage._id)) {
-            return prevMessages;
+        setMessages((prev) => {
+          if (newMessage?._id && prev.some((m) => m._id === newMessage._id)) {
+            return prev;
           }
-          return [...prevMessages, newMessage];
+          return [...prev, newMessage];
         });
       }
     };
     const unsubscribeMessage = onMessageReceived(messageListener);
 
-    const statusListener = ({ userId, status }) => {
-      if (userId === receiverId) {
-        setIsOnline(status === "online");
-      }
+    // Edit/delete updates fan in for both sides (feature #3 + #5).
+    const onMsgUpdate = (updated) => {
+      if (!updated?._id) return;
+      const isThisChat =
+        (String(updated.sender) === String(senderId) &&
+          String(updated.receiver) === String(receiverId)) ||
+        (String(updated.sender) === String(receiverId) &&
+          String(updated.receiver) === String(senderId));
+      if (!isThisChat) return;
+      setMessages((prev) =>
+        prev.map((m) => (m._id === updated._id ? { ...m, ...updated } : m))
+      );
     };
+    socket.on("direct-message-updated", onMsgUpdate);
 
+    // Pin/unpin broadcasts (fix #5)
+    const onPinUpdate = ({ messageId, isPinned }) => {
+      setMessages((prev) =>
+        prev.map((m) => (m._id?.toString() === messageId?.toString() ? { ...m, isPinned } : m))
+      );
+      fetchPinned();
+    };
+    socket.on("dm-message-pinned", onPinUpdate);
+
+    const statusListener = ({ userId, status }) => {
+      if (userId === receiverId) setIsOnline(status === "online");
+    };
     onUserStatusUpdate(statusListener);
+
+    // Fetch initial pinned messages
+    fetchPinned();
 
     return () => {
       unsubscribeMessage?.();
+      socket.off("direct-message-updated", onMsgUpdate);
+      socket.off("dm-message-pinned", onPinUpdate);
       onUserStatusUpdate(() => {});
     };
   }, [senderId, receiverId]);
@@ -122,31 +194,21 @@ const Chat = () => {
   }, [messages]);
 
   useEffect(() => {
-    if (!file) {
-      setFilePreviewUrl(null);
-      return;
-    }
-    if (!file.type?.startsWith("image/")) {
-      setFilePreviewUrl(null);
-      return;
-    }
-    const previewUrl = URL.createObjectURL(file);
-    setFilePreviewUrl(previewUrl);
-    return () => URL.revokeObjectURL(previewUrl);
-  }, [file]);
+    return () => {
+      pendingFiles.forEach((p) => p.previewUrl && URL.revokeObjectURL(p.previewUrl));
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  const uploadFile = async (file) => {
+  const uploadFile = async (selected) => {
     setUploading(true);
     const formData = new FormData();
-    formData.append("file", file);
-
+    formData.append("file", selected);
     try {
       const response = await axios.post(
         `${import.meta.env.VITE_BACKEND_API}/files/upload`,
         formData,
-        {
-          headers: authHeader,
-        }
+        { headers: authHeader }
       );
       setUploading(false);
       return response.data;
@@ -156,6 +218,7 @@ const Chat = () => {
       return null;
     }
   };
+
   const buildFileMessageUrl = (url, fileName) => {
     if (!url || !fileName) return url;
     if (url.includes("filename=")) return url;
@@ -165,7 +228,9 @@ const Chat = () => {
 
   const handleClearChat = async () => {
     if (!receiverId) return;
-    const confirmed = window.confirm("Clear all messages in this chat? This can't be undone.");
+    const confirmed = window.confirm(
+      "Clear all messages in this chat? This can't be undone."
+    );
     if (!confirmed) return;
     try {
       await axios.post(
@@ -176,40 +241,122 @@ const Chat = () => {
       setMessages([]);
       alert("Chat cleared");
     } catch (error) {
-      console.error("Error clearing chat:", error);
       alert("Unable to clear chat. Please try again.");
+    }
+  };
+
+  const handleStartEdit = (msg) => {
+    if (!msg) return;
+    if (msg.isDeleted) return;
+    if (String(msg.sender) !== String(senderId)) return;
+    if (!isWithinEditWindow(msg.createdAt)) return;
+    if (msg.message?.startsWith("http")) return; // attachments aren't editable
+    setEditingMessage(msg);
+    setInput(msg.message || "");
+    setReplyTarget(null);
+    setOpenMessageMenu(null);
+    setTimeout(() => document.getElementById("chatInput")?.focus(), 0);
+  };
+
+  const handleCancelEdit = () => {
+    setEditingMessage(null);
+    setInput("");
+  };
+
+  const handleSubmitEdit = async () => {
+    if (!editingMessage) return;
+    const trimmed = input.trim();
+    if (!trimmed) return;
+    try {
+      const res = await fetch(
+        `${import.meta.env.VITE_BACKEND_API}/message/messages/${editingMessage._id}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json", ...authHeader },
+          body: JSON.stringify({ message: trimmed }),
+        }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.success) {
+        alert(data?.message || "Could not edit message");
+        return;
+      }
+      setMessages((prev) =>
+        prev.map((m) => (m._id === data.data._id ? { ...m, ...data.data } : m))
+      );
+      setEditingMessage(null);
+      setInput("");
+    } catch (e) {
+      alert("Edit failed");
+    }
+  };
+
+  const handleDeleteMessage = async (msg) => {
+    if (!msg) return;
+    if (String(msg.sender) !== String(senderId)) return;
+    if (!isWithinEditWindow(msg.createdAt)) return;
+    if (!window.confirm("Delete this message for everyone?")) return;
+    try {
+      const res = await fetch(
+        `${import.meta.env.VITE_BACKEND_API}/message/messages/${msg._id}`,
+        { method: "DELETE", headers: authHeader }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.success) {
+        alert(data?.message || "Could not delete message");
+        return;
+      }
+      setMessages((prev) =>
+        prev.map((m) => (m._id === data.data._id ? { ...m, ...data.data } : m))
+      );
+      setOpenMessageMenu(null);
+    } catch (e) {
+      alert("Delete failed");
     }
   };
 
   const handleSendMessage = async () => {
     if (loading || uploading) return;
-    if (!input.trim() && !file) return;
-
+    if (editingMessage) return handleSubmitEdit();
     const draftInput = input.trim();
+    const filesToSend = [...pendingFiles];
+    if (!draftInput && filesToSend.length === 0) return;
+
+    const replyId = replyTarget?.id || null;
     setInput("");
-    let messageContent = draftInput;
+    setReplyTarget(null);
+    setPendingFiles([]);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    const ta = document.getElementById("chatInput");
+    if (ta) ta.style.height = "auto";
 
-    if (file) {
+    let attachmentUrls = [];
+    if (filesToSend.length > 0) {
       setloading(true);
-      const fileUrl = await uploadFile(file);
-
-      if (!fileUrl) {
+      try {
+        const results = await Promise.all(
+          filesToSend.map(async ({ file }) => {
+            const r = await uploadFile(file);
+            if (!r?.fileUrl) return null;
+            return buildFileMessageUrl(r.fileUrl, file.name);
+          })
+        );
+        attachmentUrls = results.filter(Boolean);
+      } finally {
         setloading(false);
-        return;
+        filesToSend.forEach(
+          (p) => p.previewUrl && URL.revokeObjectURL(p.previewUrl)
+        );
       }
-      messageContent = buildFileMessageUrl(fileUrl.fileUrl, file.name);
-      setFile(null);
-      if (fileInputRef.current) {
-        fileInputRef.current.value = "";
-      }
-      setloading(false);
+      if (attachmentUrls.length === 0 && !draftInput) return;
     }
 
     const newMessage = {
       sender: senderId,
       receiver: receiverId,
-      message: messageContent,
-      replyTo: replyTarget?.id || null,
+      message: draftInput,
+      attachments: attachmentUrls,
+      replyTo: replyId,
       createdAt: new Date(),
     };
 
@@ -220,14 +367,11 @@ const Chat = () => {
       );
       const savedMessage = response?.data?.data;
       if (savedMessage?._id) {
-        setMessages((prevMessages) => {
-          if (prevMessages.some((msg) => msg._id === savedMessage._id)) {
-            return prevMessages;
-          }
-          return [...prevMessages, savedMessage];
+        setMessages((prev) => {
+          if (prev.some((m) => m._id === savedMessage._id)) return prev;
+          return [...prev, savedMessage];
         });
       }
-      setReplyTarget(null);
     } catch (error) {
       console.error("Error sending message:", error);
     }
@@ -235,111 +379,50 @@ const Chat = () => {
 
   const handleEmojiClick = (emojiData) => {
     setInput((prev) => prev + emojiData.emoji);
-
-    setTimeout(() => {
-      document.getElementById("chatInput").focus();
-    }, 0);
+    setTimeout(() => document.getElementById("chatInput")?.focus(), 0);
   };
 
-  const isImage = (url) => /\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(url);
-  const isVideo = (url) => /\.(mp4|webm|ogg|mov|mkv)$/i.test(url);
-  const isAudio = (url) => /\.(mp3|wav|ogg|m4a|aac)$/i.test(url);
-  const isPdf = (url) => /\.pdf$/i.test(url);
-  const isDocument = (url) => /\.(pdf|docx|doc|xlsx|xls|pptx|ppt|csv|txt|zip|rar)$/i.test(url);
-  const isLikelyAttachment = (url) =>
-    url?.startsWith("http") &&
-    (isImage(url) || isDocument(url) || isVideo(url) || isAudio(url) || url.includes("cloudinary"));
-  const getFileExtension = (url) => {
-    const fileName = getFileNameFromUrl(url);
-    const parts = fileName.split(".");
-    if (parts.length < 2) return "";
-    return parts.pop().toLowerCase();
-  };
-  const getMessagePreview = (value) => {
-    if (!value) return "";
-    if (value.startsWith("http")) {
-      if (isImage(value)) return "Photo";
-      if (isVideo(value)) return `Video: ${getFileNameFromUrl(value)}`;
-      if (isAudio(value)) return `Audio: ${getFileNameFromUrl(value)}`;
-      if (isPdf(value)) return `PDF: ${getFileNameFromUrl(value)}`;
-      if (isDocument(value)) return `Document: ${getFileNameFromUrl(value)}`;
-      return "Link";
-    }
-    return value.length > 80 ? `${value.slice(0, 80)}...` : value;
-  };
-  const renderAttachment = (url) => {
-    const fileName = getFileNameFromUrl(url);
-    const extension = getFileExtension(url);
-    const badge = extension ? extension.toUpperCase() : "FILE";
-    const metaRow = (
-      <div className="flex items-center gap-2 bg-white/90 text-gray-800 p-2 rounded-lg">
-        <span className="text-[10px] font-semibold bg-gray-200 text-gray-700 px-2 py-0.5 rounded">
-          {badge}
-        </span>
-        <span className="truncate w-32 text-[11px]" title={fileName}>
-          {fileName}
-        </span>
-        <button
-          onClick={() => downloadFile(url)}
-          className="px-2 py-1 bg-slate-900 text-white text-xs rounded-full text-center shrink-0 shadow-md hover:bg-slate-800"
-        >
-          Download
-        </button>
-      </div>
-    );
-
-    if (isVideo(url)) {
-      return (
-        <div className="flex flex-col gap-2">
-          <video src={url} controls preload="metadata" className="w-[220px] max-w-full rounded-md" />
-          {metaRow}
-        </div>
-      );
-    }
-    if (isAudio(url)) {
-      return (
-        <div className="flex flex-col gap-2">
-          <audio src={url} controls preload="metadata" className="w-[220px] max-w-full" />
-          {metaRow}
-        </div>
-      );
-    }
-    if (isPdf(url)) {
-      return (
-        <div className="flex flex-col gap-2">
-          <iframe
-            src={url}
-            title={fileName}
-            className="w-[220px] h-[160px] max-w-full rounded-md border border-gray-200 bg-white"
-          />
-          {metaRow}
-        </div>
-      );
-    }
-    return metaRow;
-  };
   const getReplyContext = (msg) => {
     if (!msg?.replyTo && !msg?.replyPreview?.message) return null;
     if (msg?.replyPreview?.message) {
       const senderName =
         msg.replyPreview.senderName ||
-        (String(msg.replyPreview.sender) === String(senderId) ? "You" : user?.name || "User");
-      return { senderName, message: msg.replyPreview.message, id: msg.replyTo };
+        (String(msg.replyPreview.sender) === String(senderId)
+          ? "You"
+          : user?.name || "User");
+      return {
+        senderName,
+        message: msg.replyPreview.message,
+        id: msg.replyTo,
+      };
     }
     if (!msg?.replyTo) return null;
     const original = messages.find((item) => item._id === msg.replyTo);
     if (!original) {
-      return { senderName: "Unknown", message: "Original message not available", id: msg.replyTo };
+      return {
+        senderName: "Unknown",
+        message: "Original message not available",
+        id: msg.replyTo,
+      };
     }
-    const senderName = String(original.sender) === String(senderId) ? "You" : user?.name || "User";
-    return { senderName, message: getMessagePreview(original.message), id: msg.replyTo };
+    const senderName =
+      String(original.sender) === String(senderId)
+        ? "You"
+        : user?.name || "User";
+    return {
+      senderName,
+      message: getMessagePreview(original.message),
+      id: msg.replyTo,
+    };
   };
+
   const formatFileSize = (size) => {
     if (!size) return "";
     const kb = size / 1024;
     if (kb < 1024) return `${kb.toFixed(1)} KB`;
     return `${(kb / 1024).toFixed(1)} MB`;
   };
+
   const isSending = loading || uploading;
 
   const formatDateLabel = (value) => {
@@ -351,57 +434,176 @@ const Chat = () => {
 
   const handleReplySelect = (msg) => {
     if (!msg?._id) return;
-    const senderName = String(msg.sender) === String(senderId) ? "You" : user?.name || "User";
+    const senderName =
+      String(msg.sender) === String(senderId) ? "You" : user?.name || "User";
     setReplyTarget({
       id: msg._id,
       senderName,
       message: getMessagePreview(msg.message),
     });
   };
+
   const scrollToMessage = (id) => {
     if (!id) return;
     const target = messageRefs.current[id];
     if (!target) return;
     target.scrollIntoView({ behavior: "smooth", block: "center" });
     setHighlightedId(id);
-    if (highlightTimerRef.current) {
-      clearTimeout(highlightTimerRef.current);
-    }
+    if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
     highlightTimerRef.current = setTimeout(() => {
-      setHighlightedId((current) => (current === id ? null : current));
+      setHighlightedId((c) => (c === id ? null : c));
     }, 1200);
   };
 
+  const renderMessageBody = (msg, isSelf) => {
+    if (msg.isDeleted) {
+      return (
+        <span className="italic text-slate-500 text-[13px]">
+          This message was deleted
+        </span>
+      );
+    }
+    const value = msg.message;
+    if (isImage(value) || isLikelyAttachment(value)) {
+      return <FilePreview url={value} />;
+    }
+    if (typeof value === "string" && value.startsWith("http")) {
+      // Whole-message URL (typical for legacy "just the link" messages).
+      return (
+        <a
+          href={value}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={`underline break-words break-all ${
+            isSelf ? "text-blue-700" : "text-blue-600"
+          }`}
+        >
+          {value}
+        </a>
+      );
+    }
+    // For mixed text + url messages, tokenise so URLs become real links.
+    const tokens = tokenizeMessage(value || "", {});
+    return (
+      <span className="whitespace-pre-wrap break-words overflow-auto">
+        {tokens.map((t, idx) => {
+          if (t.type === "url") {
+            return (
+              <a
+                key={idx}
+                href={t.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={`underline break-all ${
+                  isSelf ? "text-blue-700" : "text-blue-600"
+                }`}
+              >
+                {t.value}
+              </a>
+            );
+          }
+          return <span key={idx}>{t.value}</span>;
+        })}
+      </span>
+    );
+  };
+
+  if (!receiverId) {
+    return (
+      <div className="p-4 text-sm text-gray-700">
+        <p>Please pick a conversation from the list.</p>
+        <button
+          className="mt-3 px-3 py-2 bg-orange-500 text-white rounded text-xs"
+          onClick={() => navigate("/conversations")}
+        >
+          Go to conversations
+        </button>
+      </div>
+    );
+  }
+
   return (
-    <div className="p-0 lg:p-4 w-full flex flex-col h-[100dvh] md:h-[calc(100vh-110px)] lg:h-[calc(100vh-60px)]">
-      <div className="flex gap-2 lg:gap-4 mb-2 lg:mb-6 border-b pt-1.5 px-2 lg:px-8 pb-1.5 items-center">
-        <p className="rounded-full border items-center flex justify-center w-8 h-8 lg:w-10 lg:h-10 text-sm lg:text-xl text-white bg-orange-500 shrink-0">
-          {user?.name?.charAt(0) || selectedUser?.[0]?.name?.charAt(0)}
-        </p>
-        <div className="min-w-0">
-          <h2 className="text-[13px] lg:text-sm font-semibold truncate">{user?.name}</h2>
-          <p className="text-[9px] lg:text-[10px] text-green-500 font-semibold">{isOnline ? "Online" : "Offline"}</p>
-        </div>
-        <div className="ml-auto">
-          {/* TODO: Re-enable Clear chat when we finalize this feature. */}
-          {/* <button
-            onClick={handleClearChat}
-            className="text-xs px-3 py-1 border border-gray-300 rounded-full hover:bg-gray-100"
-          >
-            Clear chat
-          </button> */}
+    <div className="w-full flex flex-col h-[100dvh] md:h-[calc(100vh-110px)] lg:h-[calc(100vh-80px)] bg-white">
+      <div className="slack-topbar px-3 lg:px-6 py-2.5">
+        <div className="flex items-center gap-3 min-w-0">
+          <Avatar
+            name={user?.name || ""}
+            src={user?.avatar || ""}
+            size={36}
+            rounded="rounded-md"
+          />
+          <div className="min-w-0">
+            <h2 className="text-[15px] font-bold text-ink truncate">
+              <span className="text-ink-muted mr-0.5">@</span>
+              {user?.name}
+            </h2>
+            <p className="text-chat-meta text-ink-muted flex items-center gap-1">
+              <span
+                className={`inline-block w-1.5 h-1.5 rounded-full ${
+                  isOnline ? "bg-confirm-500" : "bg-ink-faint"
+                }`}
+              />
+              {isOnline ? "Active now" : "Away"}
+            </p>
+          </div>
         </div>
       </div>
 
-      <div className="flex-1 px-2 lg:px-4 overflow-y-auto scrollable pb-2">
+      {/* Pinned DMs banner — WhatsApp style (fix #5) */}
+      {pinnedMessages.length > 0 && (
+        <div className="px-3 lg:px-6 border-b border-surface-divider bg-surface-subtle">
+          <button
+            type="button"
+            onClick={() => setShowPinned((v) => !v)}
+            className="flex items-center justify-between w-full py-1.5 text-[12px] text-ink-muted hover:text-ink"
+          >
+            <span className="flex items-center gap-1.5 font-semibold">
+              <BsPinFill size={11} className="text-yellow-400" />
+              {pinnedMessages.length} pinned message{pinnedMessages.length !== 1 ? "s" : ""}
+            </span>
+            <span>{showPinned ? "▲ Hide" : "▼ Show"}</span>
+          </button>
+          {showPinned && (
+            <ul className="pb-2 space-y-1">
+              {pinnedMessages.map((pm) => (
+                <li
+                  key={pm._id}
+                  className="flex items-start gap-2 rounded-md bg-white border border-surface-divider px-2.5 py-1.5 text-[12px]"
+                >
+                  <BsPinFill size={11} className="text-yellow-400 mt-0.5 shrink-0" />
+                  <span className="flex-1 min-w-0 text-ink line-clamp-2">
+                    {pm.message || "[attachment]"}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => handleTogglePin(pm)}
+                    className="shrink-0 text-ink-faint hover:text-red-500 text-xs"
+                    title="Unpin"
+                  >
+                    ×
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
+      <div className="flex-1 px-2 lg:px-4 overflow-y-auto slack-scroll pb-2">
         {messages.map((msg, index) => {
           const isSelf = String(msg.sender) === String(senderId);
           const senderLabel = isSelf ? "You" : user?.name || "Unknown";
           const replyContext = getReplyContext(msg);
           const currentDay = moment(msg.createdAt).format("YYYY-MM-DD");
           const previousDay =
-            index > 0 ? moment(messages[index - 1]?.createdAt).format("YYYY-MM-DD") : null;
+            index > 0
+              ? moment(messages[index - 1]?.createdAt).format("YYYY-MM-DD")
+              : null;
           const showDateDivider = index === 0 || currentDay !== previousDay;
+          const canMutate =
+            !msg.isDeleted && isSelf && isWithinEditWindow(msg.createdAt);
+          const canEdit =
+            canMutate && !(msg.message || "").startsWith("http");
           return (
             <div key={msg._id || index}>
               {showDateDivider && (
@@ -411,22 +613,104 @@ const Chat = () => {
                   </span>
                 </div>
               )}
-              <div
-                ref={(el) => {
-                  if (msg?._id && el) {
-                    messageRefs.current[msg._id] = el;
-                  }
-                }}
-                className={`p-2 rounded-lg mb-2 flex justify-between gap-2 w-fit max-w-[75%] min-w-[140px] shadow-sm
-                  ${isSelf
-                    ? "bg-[#FFFBDC] text-slate-900 border border-[#f2dba0] ml-auto"
-                    : "bg-slate-100 text-slate-900 border border-slate-200"
-                  } ${highlightedId === msg._id ? "ring-2 ring-orange-200" : ""}`}
-              >
-                <div className="flex flex-col gap-1">
-                  <span className="text-[10px] font-semibold opacity-80 truncate max-w-[220px]" title={senderLabel}>
-                    {senderLabel}
-                  </span>
+              <div className="flex items-start gap-2 mb-0.5 px-2">
+                <Avatar
+                  name={isSelf ? (userData?.name || "Me") : (user?.name || "")}
+                  src={isSelf ? (userData?.avatar || "") : (user?.avatar || "")}
+                  size={36}
+                  rounded="rounded-md"
+                />
+                <div
+                  ref={(el) => {
+                    if (msg?._id && el) messageRefs.current[msg._id] = el;
+                  }}
+                  className={`group relative flex flex-col gap-1 px-2 py-1 rounded-md w-full max-w-full
+                    ${
+                      msg.isDeleted
+                        ? "text-ink-faint italic"
+                        : "text-ink"
+                    }
+                    ${highlightedId === msg._id ? "bg-yellow-50" : "hover:bg-surface-muted"}
+                  `}
+                >
+                  <div className="flex items-baseline gap-2">
+                    <span
+                      className="text-[14px] font-bold text-ink truncate max-w-[200px]"
+                      title={senderLabel}
+                    >
+                      {senderLabel}
+                    </span>
+                    <span className="text-chat-meta text-ink-faint">
+                      {moment(msg.createdAt).calendar(null, {
+                        sameDay: "[Today at] h:mm A",
+                        lastDay: "[Yesterday at] h:mm A",
+                        lastWeek: "ddd [at] h:mm A",
+                        sameElse: "MMM D [at] h:mm A",
+                      })}
+                    </span>
+                    <div className="ml-auto flex items-center gap-1">
+                      {!msg.isDeleted && (
+                        <button
+                          type="button"
+                          onClick={() => handleReplySelect(msg)}
+                          className="text-ink-faint hover:text-ink opacity-0 group-hover:opacity-100"
+                          title="Reply"
+                        >
+                          <CornerUpLeft className="w-3 h-3" />
+                        </button>
+                      )}
+                      {!msg.isDeleted && (
+                        <button
+                          type="button"
+                          onClick={() => handleTogglePin(msg)}
+                          className={`opacity-0 group-hover:opacity-100 ${msg.isPinned ? "text-yellow-400 opacity-100" : "text-ink-faint hover:text-ink"}`}
+                          title={msg.isPinned ? "Unpin" : "Pin message"}
+                        >
+                          {msg.isPinned ? <BsPinFill size={12} /> : <BsPin size={12} />}
+                        </button>
+                      )}
+                      {canMutate && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setOpenMessageMenu(
+                              openMessageMenu === msg._id ? null : msg._id
+                            )
+                          }
+                          className="text-slate-400 hover:text-slate-700 opacity-0 group-hover:opacity-100"
+                          title="More"
+                        >
+                          ⋯
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {openMessageMenu === msg._id && (
+                    <div className="absolute right-1 top-6 z-20 bg-white border rounded shadow-lg text-xs">
+                      {canEdit && (
+                        <button
+                          type="button"
+                          onClick={() => handleStartEdit(msg)}
+                          className="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 w-full text-left"
+                        >
+                          <Pencil className="w-3 h-3" /> Edit
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteMessage(msg)}
+                        className="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 text-red-600 w-full text-left"
+                      >
+                        <Trash2 className="w-3 h-3" /> Delete
+                      </button>
+                      <p className="px-3 py-1 text-[10px] text-gray-400 border-t">
+                        Window left:{" "}
+                        {formatRemainingEditWindow(msg.createdAt)}
+                      </p>
+                    </div>
+                  )}
+
                   {replyContext && (
                     <button
                       type="button"
@@ -444,52 +728,52 @@ const Chat = () => {
                       >
                         {replyContext.senderName}
                       </p>
-                      <p className="text-[10px] truncate" title={replyContext.message}>
+                      <p
+                        className="text-[10px] truncate"
+                        title={replyContext.message}
+                      >
                         {replyContext.message}
                       </p>
                     </button>
                   )}
-                  {isImage(msg.message) ? (
-                    <>
-                      <img src={msg.message} alt="Sent" className="w-45 h-auto rounded-lg" />
-                      <button
-                        onClick={() => downloadImage(msg.message)}
-                        className="px-2 py-1 bg-slate-900 text-white text-xs rounded-full text-center mt-1 self-start shadow-md hover:bg-slate-800"
-                      >
-                        Download
-                      </button>
-                    </>
-                ) : isLikelyAttachment(msg.message) ? (
-                  renderAttachment(msg.message)
-                ) : msg.message.startsWith("http") ? (
-                  <a
-                    href={msg.message}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={`underline break-words break-all ${
-                      isSelf ? "text-blue-700 hover:text-blue-800" : "text-blue-600 hover:text-blue-700"
-                    }`}
-                  >
-                    {msg.message}
-                  </a>
-                  ) : (
-                    <span className="whitespace-pre-wrap break-words overflow-auto">{msg.message}</span>
+
+                  {/* Attachments grid + lightbox (issue #4 — Slack/WhatsApp
+                      style). Image attachments share a single grid + carousel;
+                      non-image attachments fall through to FilePreview chips. */}
+                  {(() => {
+                    if (msg.isDeleted) return null;
+                    const atts = Array.isArray(msg.attachments)
+                      ? msg.attachments.filter(Boolean)
+                      : [];
+                    if (atts.length === 0) return null;
+                    const imageAtts = atts.filter((u) => isImage(u));
+                    const otherAtts = atts.filter((u) => !isImage(u));
+                    return (
+                      <div className="flex flex-col gap-1.5">
+                        {imageAtts.length > 0 && (
+                          <ImageGrid
+                            urls={imageAtts}
+                            onOpen={(idx) =>
+                              setLightbox({ urls: imageAtts, index: idx })
+                            }
+                          />
+                        )}
+                        {otherAtts.map((u, i) => (
+                          <FilePreview key={i} url={u} />
+                        ))}
+                      </div>
+                    );
+                  })()}
+
+                  {!(
+                    Array.isArray(msg.attachments) &&
+                    msg.attachments.length > 0 &&
+                    !msg.message
+                  ) && renderMessageBody(msg, isSelf)}
+
+                  {msg.editedAt && !msg.isDeleted && (
+                    <span className="text-chat-meta text-ink-faint italic">(edited)</span>
                   )}
-                </div>
-                <div className="flex flex-col items-end justify-between">
-                <button
-                  type="button"
-                  onClick={() => handleReplySelect(msg)}
-                  className={"text-slate-500 hover:text-slate-700"}
-                >
-                  <CornerUpLeft className="w-3 h-3" />
-                </button>
-                  <span
-                    className="text-[9px] flex flex-col justify-end"
-                    title={moment(msg.createdAt).format("DD MMM YYYY, HH:mm")}
-                  >
-                    {moment(msg.createdAt).format("HH:mm")}
-                  </span>
                 </div>
               </div>
             </div>
@@ -497,19 +781,44 @@ const Chat = () => {
         })}
         <div ref={messagesEndRef} />
       </div>
+
       {loading && (
         <div className="flex items-center justify-center">
           <div className="w-5 h-5 border-2 mb-4 border-orange-500 border-t-transparent rounded-full animate-spin"></div>
         </div>
       )}
+
       <div className="p-3 lg:p-4 bg-white border-t w-full sticky bottom-0 left-0 right-0 z-10">
-        {replyTarget && (
+        {editingMessage && (
+          <div className="mb-2 flex items-center gap-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2">
+            <Pencil className="w-4 h-4 text-blue-600 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-[10px] font-semibold text-blue-700">
+                Editing message
+              </p>
+              <p className="text-[11px] text-gray-600 truncate">
+                {editingMessage.message}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleCancelEdit}
+              className="text-gray-500 hover:text-gray-700"
+              aria-label="Cancel edit"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+        {replyTarget && !editingMessage && (
           <div className="mb-2 flex items-center gap-3 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2">
             <div className="flex-1 min-w-0">
               <p className="text-[10px] font-semibold text-orange-700">
                 Replying to {replyTarget.senderName}
               </p>
-              <p className="text-[11px] text-gray-600 truncate">{replyTarget.message}</p>
+              <p className="text-[11px] text-gray-600 truncate">
+                {replyTarget.message}
+              </p>
             </div>
             <button
               type="button"
@@ -521,31 +830,48 @@ const Chat = () => {
             </button>
           </div>
         )}
-        {file && (
-          <div className="mb-2 flex items-center gap-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
-            {filePreviewUrl ? (
-              <img src={filePreviewUrl} alt="Selected file" className="w-10 h-10 rounded object-cover" />
-            ) : (
-              <div className="w-10 h-10 rounded bg-gray-200 text-[10px] font-semibold text-gray-600 flex items-center justify-center">
-                FILE
-              </div>
-            )}
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-medium truncate">{file.name}</p>
-              <p className="text-[10px] text-gray-500">{formatFileSize(file.size)}</p>
+        {pendingFiles.length > 0 && !editingMessage && (
+          <div className="mb-2 rounded-lg border border-gray-200 bg-gray-50 p-2">
+            <p className="text-[10px] font-semibold text-gray-600 mb-1">
+              {pendingFiles.length} attachment{pendingFiles.length === 1 ? "" : "s"}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {pendingFiles.map((p, idx) => (
+                <div
+                  key={`${p.file.name}-${idx}`}
+                  className="relative w-16 h-16 rounded border border-gray-200 bg-white flex items-center justify-center overflow-hidden group"
+                  title={`${p.file.name} • ${formatFileSize(p.file.size)}`}
+                >
+                  {p.previewUrl ? (
+                    <img
+                      src={p.previewUrl}
+                      alt={p.file.name}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="text-center px-1">
+                      <span className="text-[10px] font-semibold text-gray-600">
+                        {p.file.name.split(".").pop()?.toUpperCase()}
+                      </span>
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPendingFiles((curr) => {
+                        const next = curr.filter((_, i) => i !== idx);
+                        if (p.previewUrl) URL.revokeObjectURL(p.previewUrl);
+                        return next;
+                      });
+                    }}
+                    className="absolute top-0 right-0 w-4 h-4 rounded-bl bg-black/60 text-white text-[10px] leading-none flex items-center justify-center opacity-0 group-hover:opacity-100"
+                    aria-label={`Remove ${p.file.name}`}
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
             </div>
-            <button
-              type="button"
-              onClick={() => {
-                setFile(null);
-                if (fileInputRef.current) {
-                  fileInputRef.current.value = "";
-                }
-              }}
-              className="text-xs text-red-500"
-            >
-              Remove
-            </button>
           </div>
         )}
         <div className="flex items-center w-full gap-2">
@@ -559,42 +885,98 @@ const Chat = () => {
               </div>
             )}
           </div>
-
           <input
             ref={fileInputRef}
             type="file"
-            onChange={(e) => setFile(e.target.files[0] || null)}
+            multiple
+            onChange={(e) => {
+              const picked = Array.from(e.target.files || []);
+              if (picked.length === 0) return;
+              setPendingFiles((curr) => [
+                ...curr,
+                ...picked.map((f) => ({
+                  file: f,
+                  previewUrl: f.type?.startsWith("image/")
+                    ? URL.createObjectURL(f)
+                    : "",
+                })),
+              ]);
+              e.target.value = "";
+            }}
             className="hidden"
             id="fileInput"
           />
-          <label htmlFor="fileInput" className="cursor-pointer">
+          <label
+            htmlFor="fileInput"
+            className={`cursor-pointer ${
+              editingMessage ? "opacity-40 pointer-events-none" : ""
+            }`}
+            title="Attach files (multiple allowed)"
+          >
             <Paperclip size={22} className="text-gray-500" />
           </label>
 
-          <input
+          <textarea
             id="chatInput"
-            type="text"
-            className="flex-1 p-2 border rounded-lg outline-none text-[15px]"
-            placeholder="Type a message..."
+            rows={1}
+            className="flex-1 p-2 border rounded-lg outline-none text-[15px] resize-none max-h-40 overflow-y-auto"
+            placeholder={
+              editingMessage
+                ? "Edit message…"
+                : "Type a message... (Shift/Alt+Enter for new line)"
+            }
             value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyPress={(e) => e.key === "Enter" && handleSendMessage()}
+            onChange={(e) => {
+              setInput(e.target.value);
+              const ta = e.target;
+              ta.style.height = "auto";
+              ta.style.height = `${Math.min(ta.scrollHeight, 160)}px`;
+            }}
+            onPaste={() => {
+              requestAnimationFrame(() => {
+                const ta = document.getElementById("chatInput");
+                if (ta) {
+                  ta.style.height = "auto";
+                  ta.style.height = `${Math.min(ta.scrollHeight, 160)}px`;
+                }
+              });
+            }}
+            onKeyDown={(e) => {
+              // Enter alone → send. Shift+Enter or Alt+Enter → newline.
+              if (e.key === "Enter" && !e.shiftKey && !e.altKey) {
+                e.preventDefault();
+                handleSendMessage();
+                requestAnimationFrame(() => {
+                  const ta = document.getElementById("chatInput");
+                  if (ta) ta.style.height = "auto";
+                });
+              }
+            }}
             disabled={isSending}
           />
 
           <button
             onClick={handleSendMessage}
-            className={`p-2 bg-orange-400 text-white rounded-lg shrink-0 ${isSending ? "opacity-60 cursor-not-allowed" : ""}`}
+            className={`p-2 bg-orange-400 text-white rounded-lg shrink-0 ${
+              isSending ? "opacity-60 cursor-not-allowed" : ""
+            }`}
             disabled={isSending}
+            title={editingMessage ? "Save edit" : "Send"}
           >
             <Send className="w-5 h-5" />
           </button>
         </div>
       </div>
+
+      {lightbox && (
+        <Lightbox
+          urls={lightbox.urls}
+          startIndex={lightbox.index}
+          onClose={() => setLightbox(null)}
+        />
+      )}
     </div>
   );
 };
 
 export default Chat;
-
-

@@ -1,5 +1,6 @@
 import { createContext, useContext, useState,useEffect } from "react";
 import { jwtDecode } from "jwt-decode";
+import socket from "../utils/socket";
 
 const AuthContext = createContext();
 
@@ -20,6 +21,35 @@ export const AuthProvider = ({ children }) => {
         } else {
             setUserData(null);
         }      
+    }, []);
+
+    // Force-logout listener (feature #11). Same flow used in Admin/Employees:
+    // an active session is invalidated immediately when access is revoked.
+    useEffect(() => {
+        const handleForceLogout = (payload) => {
+            try {
+                localStorage.removeItem("token");
+            } catch (e) {
+                // ignore
+            }
+            setToken(null);
+            setUserData(null);
+            const reason =
+                (payload && payload.reason) ||
+                "Your account access has been revoked.";
+            try {
+                alert(reason);
+            } catch (e) {
+                // ignore
+            }
+            if (typeof window !== "undefined") {
+                window.location.href = "/login";
+            }
+        };
+        socket.on("force-logout", handleForceLogout);
+        return () => {
+            socket.off("force-logout", handleForceLogout);
+        };
     }, []);
 
 

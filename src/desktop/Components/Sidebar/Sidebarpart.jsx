@@ -8,6 +8,8 @@ import { useAuth } from "../../../context/authContext";
 import { useEffect, useState } from "react";
 import socket from "../../../utils/socket";
 import axios from "axios";
+import Avatar from "../Common/Avatar";
+import ProfilePictureUploader from "../Common/ProfilePictureUploader";
 
 const getStableColor = (text = "DM") => {
   let hash = 0;
@@ -28,6 +30,7 @@ function Sidebarpart() {
   const [unreadMessages, setUnreadMessages] = useState({});
   const { getAllUsers,userData } = useAuth();
   const [openChatId, setOpenChatId] = useState(null);
+  const [sidebarSearch, setSidebarSearch] = useState("");
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
     try {
       return localStorage.getItem(SIDEBAR_PREF_KEY) === "1";
@@ -40,6 +43,25 @@ function Sidebarpart() {
     (sum, channel) => sum + (channel?.unreadMessages || 0),
     0
   );
+
+  const [profile, setProfile] = useState(null);
+  const [profileOpen, setProfileOpen] = useState(false);
+
+  useEffect(() => {
+    const fetchProfile = async () => {
+      try {
+        const res = await fetch(
+          `${import.meta.env.VITE_BACKEND_API}/profile/me`,
+          { headers: { Authorization: `Bearer ${localStorage.getItem("token")}` } }
+        );
+        const data = await res.json().catch(() => ({}));
+        if (data?.success) setProfile(data.profile);
+      } catch (e) {
+        // ignore
+      }
+    };
+    fetchProfile();
+  }, []);
 
   const channel = async () => {
     const data = await getChannels();
@@ -63,8 +85,24 @@ function Sidebarpart() {
       channel();
     });
 
+    const onNewMessage = (msg) => {
+      if (!msg?.channelId) return;
+      setChannels((prev) => {
+        const idx = prev.findIndex(
+          (c) => c._id?.toString() === msg.channelId?.toString()
+        );
+        if (idx <= 0) return prev;
+        const updated = [...prev];
+        const [moved] = updated.splice(idx, 1);
+        updated.unshift({ ...moved, lastMessageTime: new Date().toISOString() });
+        return updated;
+      });
+    };
+    socket.on("new-channel-message", onNewMessage);
+
     return () => {
       socket.off("updateUnread");
+      socket.off("new-channel-message", onNewMessage);
       socket.disconnect();
     };
   }, []);
@@ -121,31 +159,36 @@ function Sidebarpart() {
   };
 
   return (
-    <div className="flex h-screen overflow-hidden">
-      <div className="relative flex h-screen flex-col items-center justify-between border border-orange-400 bg-white/95 px-3 pt-2">
-        <nav className="flex flex-col gap-1 items-center">
-          <Link to="/home" className="flex items-center">
-            <div className="">
-              <img src={logo} alt="" className="h-[70px] w-[70px]" />
-            </div>
+    <div className="sticky top-0 flex h-[100dvh] shrink-0 overflow-hidden">
+      <div className="relative flex h-screen flex-col items-stretch justify-between bg-sidebar text-sidebar-text border-r border-sidebar-divider px-2 pt-2">
+        <nav className="flex flex-col gap-0.5 items-stretch">
+          <Link to="/home" className="flex flex-col items-center py-2 rounded-md">
+            <div className="flex items-center justify-center w-[50px] h-[50px] rounded-xl bg-white shadow-sm p-1"><img src={logo} alt="" className="h-full w-full object-contain" /></div>
           </Link>
-          <Link to="/home" className="flex items-center gap-2 p-2">
-            <div className="flex flex-col items-center">
-              <img src={home} alt="" className="h-[24px] w-[24px]" />
-              <p className="text-[12px] font-semibold">Home</p>
-            </div>
+          <Link to="/home" className="flex flex-col items-center py-2 rounded-md hover:bg-sidebar-hover text-white">
+            <img src={home} alt="" className="h-[20px] w-[20px] invert" />
+            <p className="text-[11px] font-semibold mt-0.5">Home</p>
           </Link>
         </nav>
-        <div className="">
-          <p className="mb-4 flex w-10 items-center justify-center rounded-2xl border border-orange-100 bg-orange-500 py-1 text-2xl font-medium text-white shadow-sm">
-            {userData?.name?.charAt(0)}
-          </p>
+        <div className="pb-3 flex justify-center">
+          <button
+            type="button"
+            onClick={() => setProfileOpen(true)}
+            title="My profile"
+            className="rounded-full"
+          >
+            <Avatar
+              name={userData?.name || "Client"}
+              src={profile?.avatar || ""}
+              size={36}
+            />
+          </button>
         </div>
 
         <button
           type="button"
           onClick={toggleSidebar}
-          className="absolute -right-3 top-24 z-20 flex h-6 w-6 items-center justify-center rounded-full border border-orange-300 bg-white text-gray-700 shadow-sm hover:bg-orange-50"
+          className="absolute -right-3 top-24 z-20 flex h-6 w-6 items-center justify-center rounded-full border border-sidebar-divider bg-sidebar-alt text-sidebar-text shadow hover:bg-sidebar-hover"
           title={isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
           aria-label={isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
@@ -154,113 +197,179 @@ function Sidebarpart() {
       </div>
 
       <div
-        className={`bg-gray-200 border border-orange-400 h-screen flex flex-col overflow-hidden transition-all duration-300 ${
-          isSidebarCollapsed ? "w-0 p-0 opacity-0 border-l-0 border-r-0 pointer-events-none" : "w-[260px] px-3 py-4 opacity-100"
+        className={`bg-sidebar text-sidebar-text border-r border-sidebar-divider h-screen flex flex-col overflow-hidden transition-all duration-300 ${
+          isSidebarCollapsed ? "w-0 p-0 opacity-0 border-l-0 border-r-0 pointer-events-none" : "w-[260px] py-3 opacity-100"
         }`}
       >
         {!isSidebarCollapsed && (
           <>
-        <div className="flex justify-between items-center pt-3 mb-3">
-          <h2 className="text-[18px] font-medium flex gap-2">
-            {userData?.name}
-            <img src={arrow} alt="" className="w-[8px] pt-1" />
-          </h2>
-          <img src={edit} alt="" className="w-[10px] h-[10px]" />
+        {/* Workspace header */}
+        <div className="flex justify-between items-center px-3 pb-3 mb-1 border-b border-sidebar-divider">
+          <button
+            type="button"
+            onClick={() => setProfileOpen(true)}
+            className="flex items-center gap-2 text-left min-w-0"
+            title="My profile"
+          >
+            <Avatar
+              name={userData?.name || "Client"}
+              src={profile?.avatar || ""}
+              size={32}
+              rounded="rounded-md"
+            />
+            <span className="min-w-0">
+              <span className="block text-[15px] font-bold text-white truncate">
+                {userData?.name}
+              </span>
+              <span className="block text-[11px] text-sidebar-muted truncate">
+                Client · workspace
+              </span>
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setProfileOpen(true)}
+            className="text-sidebar-muted hover:text-white"
+            aria-label="My profile"
+          >
+            <img src={edit} alt="" className="w-[12px] h-[12px] invert opacity-70" />
+          </button>
+        </div>
+        {/* Search input */}
+        <div className="px-3 mb-1">
+          <input
+            type="text"
+            placeholder="Search channels or people..."
+            value={sidebarSearch}
+            onChange={(e) => setSidebarSearch(e.target.value)}
+            className="w-full text-[13px] px-2.5 py-1.5 rounded-md bg-sidebar-hover text-white placeholder-sidebar-muted border border-sidebar-divider focus:outline-none focus:border-sidebar-active"
+          />
         </div>
 
-        <div className="flex flex-col gap-3 flex-1 min-h-0">
-          <div className="pt-2 flex flex-col min-h-0 flex-[0.95]">
-            <div className="flex items-center justify-between gap-2">
-              <h3 className="text-[15px] font-bold text-gray-600 flex gap-2">
-                Channels <img src={arrow} alt="" className="w-[8px] pt-1" />
-              </h3>
-              <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
-                totalChannelUnread > 0
-                  ? "bg-emerald-100 text-emerald-700"
-                  : "bg-white text-gray-500"
-              }`}>
-                {totalChannelUnread > 0 ? totalChannelUnread : channels?.length || 0}
-              </span>
+        <div className="flex flex-col flex-1 min-h-0 px-1">
+          {/* Channels Section */}
+          <div className="pt-1 flex flex-col min-h-0 flex-[0.95]">
+            <div className="slack-section-header">
+              <span>Channels</span>
+              {totalChannelUnread > 0 && (
+                <span className="slack-unread">{totalChannelUnread}</span>
+              )}
             </div>
-            <ul className="mt-2 flex-1 min-h-0 overflow-y-auto hide-scrollbar">
-              {channels?.map((channel) => (
+            <ul className="flex-1 min-h-0 overflow-y-auto slack-scroll slack-scroll-dark">
+              {channels?.filter(ch => !sidebarSearch || ch.name?.toLowerCase().includes(sidebarSearch.toLowerCase())).map((channel) => {
+                const isActive = location.pathname === `/channelchat/${channel._id}`;
+                return (
                 <li key={channel._id}>
                   <button
                     type="button"
-                    className="flex w-full items-center gap-2 rounded-xl px-2 py-1.5 text-left text-[13px] font-medium text-gray-700 hover:bg-white/70"
+                    className={`slack-row w-full justify-start text-left ${isActive ? "is-active" : ""}`}
                     onClick={() => handleChannelChat(channel.name, channel._id)}
                   >
-                    <span className="flex min-w-0 items-center gap-2">
-                      <span
-                        className="flex h-5 w-5 shrink-0 items-center justify-center border text-[12px] font-medium text-white"
-                        style={{
-                          backgroundColor: getStableColor(channel?.name),
-                        }}
-                      >
-                        {channel?.name?.charAt(0).toUpperCase()}
-                      </span>
-                      <span className="truncate flex-1 min-w-0">{channel.name}</span>
-                      {channel?.unreadMessages > 0 && (
-                        <span className="shrink-0 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[11px] font-bold text-green-600">
-                          {channel.unreadMessages}
-                        </span>
-                      )}
+                    <Avatar
+                      name={channel?.name}
+                      src={channel?.image || ""}
+                      size={18}
+                      rounded="rounded-sm"
+                      fontSize="10px"
+                    />
+                    <span className="truncate flex-1 min-w-0 font-medium text-white">
+                      <span className="text-sidebar-muted mr-0.5">#</span>
+                      {channel.name}
                     </span>
+                    {channel?.unreadMessages > 0 && (
+                      <span className="slack-unread">{channel.unreadMessages}</span>
+                    )}
                   </button>
                 </li>
-              ))}
+                );
+              })}
             </ul>
           </div>
 
-          <div className="flex flex-col min-h-0 flex-[1.15]">
-            <div className="flex items-center justify-between gap-2">
-              <h3 className="text-[15px] font-bold text-gray-600 flex gap-2">
-                Messages <img src={arrow} alt="" className="w-[8px] pt-1" />
-              </h3>
-              <span className="rounded-full bg-white px-2 py-0.5 text-[11px] font-medium text-gray-500">
-                {employees?.filter((user) => user.lastMessageTime)?.length || 0}
-              </span>
+          {/* Direct Messages Section */}
+          <div className="flex flex-col min-h-0 flex-[1.15] mt-1">
+            <div className="slack-section-header">
+              <span>Direct messages</span>
             </div>
-            <ul className="hide-scrollbar mt-2 flex-1 min-h-0 overflow-y-auto pr-1">
+            <ul className="flex-1 min-h-0 overflow-y-auto slack-scroll slack-scroll-dark">
               {employees
                 ?.filter((user) => user.lastMessageTime)
-                .map((user, i) => (
+                .map((user, i) => {
+                  const isActive = location.pathname === `/chat/${user.id}`;
+                  return (
                   <li key={user.id || i}>
                     <button
                       type="button"
-                      className="flex w-full items-center gap-2 rounded-xl px-2 py-1.5 text-left text-[13px] font-medium text-gray-700 hover:bg-white/70"
+                      className={`slack-row w-full justify-start text-left ${isActive ? "is-active" : ""}`}
                       onClick={() => handleChat(user.name, user.id)}
                     >
-                      <span
-                        className="flex h-5 w-5 shrink-0 items-center justify-center border text-[12px] font-medium text-white"
-                        style={{
-                          backgroundColor: getStableColor(user?.name),
-                        }}
-                      >
-                        {user?.name?.charAt(0).toUpperCase()}
-                      </span>
-                      <span className="flex-1 truncate">{user?.name}</span>
+                      <Avatar
+                        name={user?.name}
+                        src={user?.avatar || ""}
+                        size={18}
+                        fontSize="10px"
+                      />
+                      <span className="flex-1 truncate slack-row-meta">{user?.name}</span>
                       {unreadMessages[user.id] > 0 && openChatId !== user.id && (
-                        <span className="shrink-0 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[11px] font-bold text-green-600">
-                          {unreadMessages[user.id]}
-                        </span>
+                        <span className="slack-unread">{unreadMessages[user.id]}</span>
                       )}
                     </button>
                   </li>
-                ))}
+                  );
+                })}
             </ul>
             <button
               type="button"
-              className="mt-2 rounded-xl px-2 py-1.5 text-left text-[13px] text-gray-700 hover:bg-white/70"
+              className="slack-row text-sidebar-text/60 hover:text-white w-full mt-1"
               onClick={handleCowrokers}
             >
-              + Add Coworker
+              <span className="w-[18px] h-[18px] rounded-sm bg-sidebar-hover flex items-center justify-center text-sidebar-muted">+</span>
+              <span>Add coworker</span>
             </button>
           </div>
         </div>
           </>
         )}
       </div>
+
+      {profileOpen && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center">
+          <div className="bg-white w-full max-w-md rounded-lg shadow-modal p-4">
+            <div className="flex items-center justify-between border-b border-surface-divider pb-2">
+              <h3 className="text-sm font-semibold text-ink">My Profile</h3>
+              <button
+                type="button"
+                onClick={() => setProfileOpen(false)}
+                className="text-ink-muted text-xl leading-none"
+              >
+                &times;
+              </button>
+            </div>
+            <div className="mt-3">
+              <ProfilePictureUploader
+                name={profile?.name || userData?.name || ""}
+                currentAvatar={profile?.avatar || ""}
+                onUpdated={(updated) => {
+                  if (updated) setProfile((p) => ({ ...(p || {}), ...updated }));
+                }}
+              />
+            </div>
+            <div className="mt-4 text-xs text-ink-muted space-y-1">
+              <p><span className="font-semibold text-ink">Name:</span> {profile?.name || userData?.name}</p>
+              <p><span className="font-semibold text-ink">Email:</span> {profile?.email || "—"}</p>
+            </div>
+            <div className="mt-4 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setProfileOpen(false)}
+                className="slack-btn-ghost"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
