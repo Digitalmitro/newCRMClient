@@ -158,7 +158,7 @@ function Searchbar() {
       </div>
 
       <div
-        className={`notification-drawer fixed right-0 top-0 z-50 flex h-screen w-[380px] max-w-[calc(100vw-20px)] flex-col p-4 shadow-2xl transition-transform ${
+        className={`notification-drawer fixed right-0 top-0 z-50 flex h-screen w-[380px] max-w-[calc(100vw-20px)] flex-col bg-white p-4 shadow-2xl transition-transform ${
           isSidebarOpen ? "translate-x-0" : "translate-x-full"
         }`}
       >
