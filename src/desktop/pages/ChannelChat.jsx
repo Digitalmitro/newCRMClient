@@ -7,8 +7,7 @@ import { useLocation, useNavigate, useParams } from "react-router";
 import { BsEmojiSmile } from "react-icons/bs";
 import EmojiPicker from "emoji-picker-react";
 import { IoMdShareAlt } from "react-icons/io";
-import { IoIosSettings } from "react-icons/io";
-import { MdDelete, MdInsertDriveFile } from "react-icons/md";
+import { MdInsertDriveFile } from "react-icons/md";
 import { useAuth } from "../../context/authContext";
 import { onChannelMessageReceived, joinChannel } from "../../utils/socket";
 import socket from "../../utils/socket";
@@ -1008,22 +1007,6 @@ const ChannelChat = () => {
           <div className="relative flex items-center gap-1 shrink-0">
             <button
               type="button"
-              onClick={handleChannelDelete}
-              className="p-1.5 rounded text-ink-muted hover:text-red-600 hover:bg-red-50"
-              title="Delete channel"
-            >
-              <MdDelete />
-            </button>
-            <button
-              type="button"
-              onClick={handleChannelUpdate}
-              className="p-1.5 rounded text-ink-muted hover:text-ink hover:bg-surface-muted"
-              title="Edit channel"
-            >
-              <IoIosSettings />
-            </button>
-            <button
-              type="button"
               onClick={handleShare}
               className="p-1.5 rounded text-ink-muted hover:text-ink hover:bg-surface-muted"
               title="Share / invite"
@@ -1282,17 +1265,6 @@ const ChannelChat = () => {
                 </dd>
               </div>
             </dl>
-            <div className="mt-4">
-              <button
-                type="button"
-                onClick={() => setChannelUpdateModal(true)}
-                className="px-3 py-1.5 text-xs rounded bg-orange-500 text-white"
-                disabled={!isOwner}
-                title={isOwner ? "Edit channel" : "Only the owner can edit"}
-              >
-                Edit channel
-              </button>
-            </div>
           </div>
         </div>
       )}
