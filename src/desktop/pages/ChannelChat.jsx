@@ -7,7 +7,8 @@ import { useLocation, useNavigate, useParams } from "react-router";
 import { BsEmojiSmile } from "react-icons/bs";
 import EmojiPicker from "emoji-picker-react";
 import { IoMdShareAlt } from "react-icons/io";
-import { MdInsertDriveFile } from "react-icons/md";
+import { IoIosSettings } from "react-icons/io";
+import { MdDelete, MdInsertDriveFile } from "react-icons/md";
 import { useAuth } from "../../context/authContext";
 import { onChannelMessageReceived, joinChannel } from "../../utils/socket";
 import socket from "../../utils/socket";
@@ -68,7 +69,8 @@ const ChannelChat = () => {
   // and the index currently being viewed; null when closed.
   const [lightbox, setLightbox] = useState(null);
   const [modal, setModal] = useState(false);
-    const [input, setInput] = useState("");
+  const [channelUpdateModal, setChannelUpdateModal] = useState(false);
+  const [input, setInput] = useState("");
   const [inputSend, setInputSend] = useState("");
   const [uploading, setUploading] = useState(false);
   const [loading, setloading] = useState(false);
@@ -94,9 +96,17 @@ const ChannelChat = () => {
   const [openMessageMenu, setOpenMessageMenu] = useState(null); // msg id
   const [reports, setReports] = useState([]);
   const [reportsLoading, setReportsLoading] = useState(false);
+  const [reportUploadOpen, setReportUploadOpen] = useState(false);
+  const [reportYear, setReportYear] = useState(new Date().getFullYear());
+  const [reportMonth, setReportMonth] = useState(new Date().getMonth() + 1);
+  const [reportTitle, setReportTitle] = useState("");
+  const [reportNote, setReportNote] = useState("");
+  const [reportFile, setReportFile] = useState(null);
+  const [reportUploading, setReportUploading] = useState(false);
 
   const token = localStorage.getItem("token");
-    const messageListRef = useRef(null);
+  const navigate = useNavigate();
+  const messageListRef = useRef(null);
   const messagesEndRef = useRef(null);
   const messageRefs = useRef({});
   const highlightTimerRef = useRef(null);
@@ -105,7 +115,8 @@ const ChannelChat = () => {
   const inputElRef = useRef(null);
 
   const handleShare = () => setModal(true);
-  
+  const handleChannelUpdate = () => setChannelUpdateModal(true);
+
   const extractTaskNumber = useCallback((text = "") => {
     if (!text) return "";
     const match = text.match(TASK_NUMBER_REGEX);
@@ -618,7 +629,61 @@ const ChannelChat = () => {
     fetchReports();
   }, [fetchReports]);
 
+  const handleReportUpload = async (e) => {
+    e.preventDefault();
+    if (!reportFile) {
+      alert("Please choose a file");
+      return;
+    }
+    setReportUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", reportFile);
+      fd.append("year", String(reportYear));
+      fd.append("month", String(reportMonth));
+      if (reportTitle) fd.append("title", reportTitle);
+      if (reportNote) fd.append("note", reportNote);
+      const res = await fetch(
+        `${import.meta.env.VITE_BACKEND_API}/channels/${channelId}/reports`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+          body: fd,
+        }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.message || "Upload failed");
+      }
+      setReportUploadOpen(false);
+      setReportFile(null);
+      setReportTitle("");
+      setReportNote("");
+      await fetchReports();
+    } catch (err) {
+      alert(err.message || "Upload failed");
+    } finally {
+      setReportUploading(false);
+    }
+  };
 
+  const handleReportDelete = async (reportId) => {
+    if (!window.confirm("Delete this report?")) return;
+    try {
+      const res = await fetch(
+        `${import.meta.env.VITE_BACKEND_API}/channels/${channelId}/reports/${reportId}`,
+        {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.success) throw new Error(data?.message);
+      await fetchReports();
+    } catch (err) {
+      alert(err.message || "Could not delete");
+    }
+  };
 
   // ----- Channel delete (kept) -----
   const handleChannelDelete = async () => {
@@ -800,7 +865,8 @@ const ChannelChat = () => {
   const channelStatus = channelInfo?.statusTag || "Active";
   const channelDescription = channelInfo?.description || "";
   const channelDetails = channelInfo?.channelDetails || {};
-  
+  const isOwner = String(channelInfo?.owner) === String(senderId);
+
   // Renders the message body — tokenizing mentions for highlight + handling
   // attachments (FilePreview), tombstones, and edited markers.
   const renderMessageBody = (msg, isSelf) => {
@@ -818,20 +884,7 @@ const ChannelChat = () => {
     if (isLikelyAttachment(value)) {
       return <FilePreview url={value} />;
     }
-    if (typeof value === "string" && value.startsWith("http")) {
-      return (
-        <a
-          href={value}
-          target="_blank"
-          rel="noopener noreferrer"
-          className={`underline break-words break-all ${
-            isSelf ? "text-blue-700" : "text-blue-600"
-          }`}
-        >
-          {value}
-        </a>
-      );
-    }
+    // Always tokenise — handles single link, multiple links, mixed text+links.
     const tokens = tokenizeMessage(value || "", mentionIdToName);
     return (
       <span className="whitespace-pre-wrap break-words overflow-auto">
@@ -952,7 +1005,24 @@ const ChannelChat = () => {
             + Task
           </button>
 
-          <div className="relative flex items-center gap-1 shrink-0">            <button
+          <div className="relative flex items-center gap-1 shrink-0">
+            <button
+              type="button"
+              onClick={handleChannelDelete}
+              className="p-1.5 rounded text-ink-muted hover:text-red-600 hover:bg-red-50"
+              title="Delete channel"
+            >
+              <MdDelete />
+            </button>
+            <button
+              type="button"
+              onClick={handleChannelUpdate}
+              className="p-1.5 rounded text-ink-muted hover:text-ink hover:bg-surface-muted"
+              title="Edit channel"
+            >
+              <IoIosSettings />
+            </button>
+            <button
               type="button"
               onClick={handleShare}
               className="p-1.5 rounded text-ink-muted hover:text-ink hover:bg-surface-muted"
@@ -1003,31 +1073,154 @@ const ChannelChat = () => {
                     onClick={handleSend}
                   >
                     Send single invite
-                  </button>                </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      navigate(`/addpeople-channel`, {
+                        state: {
+                          id: channelId,
+                          channelId,
+                          name: channelDisplayName,
+                          channelName: { channel: channelDisplayName },
+                          mode: "invite",
+                        },
+                      })
+                    }
+                    className="w-full px-2 py-1 text-[11px] border border-orange-400 text-orange-600 rounded"
+                  >
+                    Invite multiple people…
+                  </button>
+                </div>
           </div>
       )}
 
-      
-      {/* ===== Reports tab - download only ===== */}
+      {/* Channel settings modal — full-width overlay */}
+{/* ===== Reports tab (feature #6) ===== */}
       {activeTab === "reports" && (
         <div className="flex-1 overflow-y-auto px-3 lg:px-6 pb-4">
-          <h3 className="text-sm font-semibold text-ink mb-3">Monthly Task Reports</h3>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-gray-800">
+              Monthly Task Reports
+            </h3>
+            <button
+              type="button"
+              onClick={() => setReportUploadOpen((v) => !v)}
+              className="px-3 py-1.5 text-xs rounded bg-orange-500 text-white"
+            >
+              {reportUploadOpen ? "Cancel" : "Upload report"}
+            </button>
+          </div>
+          {reportUploadOpen && (
+            <form
+              onSubmit={handleReportUpload}
+              className="grid grid-cols-1 md:grid-cols-5 gap-2 items-end mb-4 border rounded p-3 bg-gray-50"
+            >
+              <div>
+                <label className="block text-[11px] text-gray-600 mb-1">
+                  Year
+                </label>
+                <input
+                  type="number"
+                  value={reportYear}
+                  onChange={(e) => setReportYear(Number(e.target.value))}
+                  className="w-full text-sm border border-gray-300 rounded px-2 py-1.5"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] text-gray-600 mb-1">
+                  Month
+                </label>
+                <select
+                  value={reportMonth}
+                  onChange={(e) => setReportMonth(Number(e.target.value))}
+                  className="w-full text-sm border border-gray-300 rounded px-2 py-1.5"
+                >
+                  {monthLabels.map((m, idx) => (
+                    <option key={m} value={idx + 1}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="md:col-span-2">
+                <label className="block text-[11px] text-gray-600 mb-1">File</label>
+                <input
+                  type="file"
+                  onChange={(e) => setReportFile(e.target.files?.[0] || null)}
+                  className="w-full text-xs"
+                />
+              </div>
+              <div>
+                <button
+                  type="submit"
+                  disabled={reportUploading}
+                  className="w-full text-sm bg-orange-500 text-white py-1.5 rounded disabled:opacity-60"
+                >
+                  {reportUploading ? "Uploading…" : "Upload"}
+                </button>
+              </div>
+              <div className="md:col-span-3">
+                <input
+                  type="text"
+                  value={reportTitle}
+                  onChange={(e) => setReportTitle(e.target.value)}
+                  placeholder="Title (optional)"
+                  className="w-full text-xs border border-gray-300 rounded px-2 py-1.5"
+                />
+              </div>
+              <div className="md:col-span-2">
+                <input
+                  type="text"
+                  value={reportNote}
+                  onChange={(e) => setReportNote(e.target.value)}
+                  placeholder="Note (optional)"
+                  className="w-full text-xs border border-gray-300 rounded px-2 py-1.5"
+                />
+              </div>
+            </form>
+          )}
           {reportsLoading ? (
-            <p className="text-xs text-ink-muted">Loading…</p>
+            <p className="text-xs text-gray-500">Loading…</p>
           ) : reports.length === 0 ? (
-            <p className="text-xs text-ink-muted">No reports yet.</p>
+            <p className="text-xs text-gray-500">No reports uploaded yet.</p>
           ) : (
             <ul className="divide-y border rounded overflow-hidden">
               {reports.map((r) => {
                 const monthLabel = monthLabels[r.month - 1] || r.month;
                 return (
-                  <li key={r._id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-xs bg-white">
+                  <li
+                    key={r._id}
+                    className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-xs bg-white"
+                  >
                     <div className="min-w-0">
-                      <p className="font-medium text-ink">{r.title || `${monthLabel} ${r.year} report`}</p>
-                      <p className="text-[11px] text-ink-muted truncate">{r.fileName}{r.note ? ` • ${r.note}` : ""}</p>
-                      <p className="text-[10px] text-ink-faint">{moment(r.createdAt).format("DD MMM YYYY, HH:mm")}</p>
+                      <p className="font-medium text-gray-800">
+                        {r.title || `${monthLabel} ${r.year} report`}
+                      </p>
+                      <p className="text-[11px] text-gray-500 truncate">
+                        {r.fileName}
+                        {r.note ? ` • ${r.note}` : ""}
+                      </p>
+                      <p className="text-[10px] text-gray-400">
+                        Uploaded {moment(r.createdAt).format("DD MMM YYYY, HH:mm")}
+                      </p>
                     </div>
-                    <button type="button" onClick={() => downloadFile(r.fileUrl, r.fileName)} className="slack-btn-confirm !py-1 !text-xs">Download</button>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => downloadFile(r.fileUrl, r.fileName)}
+                        className="px-2 py-1 rounded bg-slate-900 text-white"
+                      >
+                        Download
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleReportDelete(r._id)}
+                        className="px-2 py-1 rounded border border-red-300 text-red-600"
+                      >
+                        Delete
+                      </button>
+                    </div>
                   </li>
                 );
               })}
@@ -1089,7 +1282,17 @@ const ChannelChat = () => {
                 </dd>
               </div>
             </dl>
-            <div className="mt-4">            </div>
+            <div className="mt-4">
+              <button
+                type="button"
+                onClick={() => setChannelUpdateModal(true)}
+                className="px-3 py-1.5 text-xs rounded bg-orange-500 text-white"
+                disabled={!isOwner}
+                title={isOwner ? "Edit channel" : "Only the owner can edit"}
+              >
+                Edit channel
+              </button>
+            </div>
           </div>
         </div>
       )}

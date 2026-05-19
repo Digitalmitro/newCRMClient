@@ -11,7 +11,7 @@ import {
 import socket from "../../utils/socket";
 import { useAuth } from "../../context/authContext";
 import moment from "moment";
-import { BsEmojiSmile } from "react-icons/bs";
+import { BsEmojiSmile, BsPin, BsPinFill } from "react-icons/bs";
 import EmojiPicker from "emoji-picker-react";
 import { downloadFile, getFileNameFromUrl } from "../../utils/helper";
 import {
@@ -83,8 +83,37 @@ const Chat = () => {
   const [replyTarget, setReplyTarget] = useState(null);
   const [highlightedId, setHighlightedId] = useState(null);
   const [editingMessage, setEditingMessage] = useState(null);
+  const [pinnedMessages, setPinnedMessages] = useState([]);
+  const [showPinned, setShowPinned] = useState(false);
   const [openMessageMenu, setOpenMessageMenu] = useState(null);
   const authHeader = { Authorization: `Bearer ${localStorage.getItem("token")}` };
+
+  const fetchPinned = async () => {
+    if (!receiverId) return;
+    try {
+      const res = await axios.get(
+        `${import.meta.env.VITE_BACKEND_API}/message/pinned?with=${receiverId}`,
+        { headers: authHeader }
+      );
+      if (res.data?.success) setPinnedMessages(res.data.pinned || []);
+    } catch (_) {}
+  };
+
+  const handleTogglePin = async (msg) => {
+    try {
+      await axios.patch(
+        `${import.meta.env.VITE_BACKEND_API}/message/messages/${msg._id}/pin`,
+        {},
+        { headers: authHeader }
+      );
+      setMessages((prev) =>
+        prev.map((m) => (m._id === msg._id ? { ...m, isPinned: !m.isPinned } : m))
+      );
+      await fetchPinned();
+    } catch (err) {
+      console.error("Pin failed:", err);
+    }
+  };
 
   const markMessagesAsRead = async (senderId) => {
     try {
@@ -164,14 +193,25 @@ const Chat = () => {
     };
     socket.on("direct-message-updated", onMsgUpdate);
 
+    const onPinUpdate = ({ messageId, isPinned }) => {
+      setMessages((prev) =>
+        prev.map((m) => (m._id?.toString() === messageId?.toString() ? { ...m, isPinned } : m))
+      );
+      fetchPinned();
+    };
+    socket.on("dm-message-pinned", onPinUpdate);
+
     const statusListener = ({ userId, status }) => {
       if (userId === receiverId) setIsOnline(status === "online");
     };
     onUserStatusUpdate(statusListener);
 
+    fetchPinned();
+
     return () => {
       unsubscribeMessage?.();
       socket.off("direct-message-updated", onMsgUpdate);
+      socket.off("dm-message-pinned", onPinUpdate);
       onUserStatusUpdate(() => {});
     };
   }, [senderId, receiverId]);
@@ -454,22 +494,9 @@ const Chat = () => {
     if (isImage(value) || isLikelyAttachment(value)) {
       return <FilePreview url={value} />;
     }
-    if (typeof value === "string" && value.startsWith("http")) {
-      // Whole-message URL (typical for legacy "just the link" messages).
-      return (
-        <a
-          href={value}
-          target="_blank"
-          rel="noopener noreferrer"
-          className={`underline break-words break-all ${
-            isSelf ? "text-blue-700" : "text-blue-600"
-          }`}
-        >
-          {value}
-        </a>
-      );
-    }
-    // For mixed text + url messages, tokenise so URLs become real links.
+    // Always tokenise — handles single link, multiple links, mixed text+links,
+    // and newline/space-separated links. The old startsWith("http") shortcut
+    // was merging multiple links into one broken href.
     const tokens = tokenizeMessage(value || "", {});
     return (
       <span className="whitespace-pre-wrap break-words overflow-auto">
@@ -535,6 +562,39 @@ const Chat = () => {
           </div>
         </div>
       </div>
+
+      {/* Pinned messages banner — WhatsApp style */}
+      {pinnedMessages.length > 0 && (
+        <div className="px-3 lg:px-6 border-b border-surface-divider bg-surface-subtle">
+          <button
+            type="button"
+            onClick={() => setShowPinned((v) => !v)}
+            className="flex items-center justify-between w-full py-1.5 text-[12px] text-ink-muted hover:text-ink"
+          >
+            <span className="flex items-center gap-1.5 font-semibold">
+              <BsPinFill size={11} className="text-yellow-500" />
+              {pinnedMessages.length} pinned message{pinnedMessages.length !== 1 ? "s" : ""}
+            </span>
+            <span>{showPinned ? "▲ Hide" : "▼ Show"}</span>
+          </button>
+          {showPinned && (
+            <ul className="pb-2 space-y-1">
+              {pinnedMessages.map((pm) => (
+                <li key={pm._id} className="flex items-start gap-2 rounded-md bg-white border border-surface-divider px-2.5 py-1.5 text-[12px]">
+                  <BsPinFill size={11} className="text-yellow-500 mt-0.5 shrink-0" />
+                  <span className="flex-1 min-w-0 text-ink line-clamp-2">{pm.message || "[attachment]"}</span>
+                  <button
+                    type="button"
+                    onClick={() => handleTogglePin(pm)}
+                    className="shrink-0 text-ink-faint hover:text-red-500 text-xs"
+                    title="Unpin"
+                  >×</button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
 
       <div className="flex-1 px-2 lg:px-4 overflow-y-auto slack-scroll pb-2">
         {messages.map((msg, index) => {
@@ -604,6 +664,16 @@ const Chat = () => {
                           title="Reply"
                         >
                           <CornerUpLeft className="w-3 h-3" />
+                        </button>
+                      )}
+                      {!msg.isDeleted && (
+                        <button
+                          type="button"
+                          onClick={() => handleTogglePin(msg)}
+                          className={`opacity-0 group-hover:opacity-100 ${msg.isPinned ? "text-yellow-500 !opacity-100" : "text-ink-faint hover:text-ink"}`}
+                          title={msg.isPinned ? "Unpin" : "Pin message"}
+                        >
+                          {msg.isPinned ? <BsPinFill size={12} /> : <BsPin size={12} />}
                         </button>
                       )}
                       {canMutate && (
