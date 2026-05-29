@@ -42,23 +42,26 @@ const Chat = () => {
   const [otherAvatar, setOtherAvatar] = useState("");
 
   useEffect(() => {
+    // Reset avatar immediately when conversation changes
+    setOtherAvatar("");
     const t = localStorage.getItem("token");
     if (!t) return;
-    // Own profile
-    fetch(`${import.meta.env.VITE_BACKEND_API}/profile/me`, {
-      headers: { Authorization: `Bearer ${t}` },
-    })
-      .then((r) => r.json())
-      .then((d) => { if (d?.success) setSelfProfile(d.profile); })
-      .catch(() => {});
-    // Other person's profile via batch avatars endpoint
+    // Own profile (only fetch once)
+    if (!selfProfile) {
+      fetch(`${import.meta.env.VITE_BACKEND_API}/profile/me`, {
+        headers: { Authorization: `Bearer ${t}` },
+      })
+        .then((r) => r.json())
+        .then((d) => { if (d?.success) setSelfProfile(d.profile); })
+        .catch(() => {});
+    }
+    // Other person's avatar — fetch fresh every time receiverId changes
     if (receiverId) {
       fetch(`${import.meta.env.VITE_BACKEND_API}/profile/avatars?ids=${receiverId}`, {
         headers: { Authorization: `Bearer ${t}` },
       })
         .then((r) => r.json())
         .then((d) => {
-          // avatars is an object keyed by userId: { "id": { name, avatar } }
           const found = d?.avatars?.[receiverId?.toString()];
           if (found?.avatar) setOtherAvatar(found.avatar);
         })
@@ -542,7 +545,7 @@ const Chat = () => {
         <div className="flex items-center gap-3 min-w-0">
           <Avatar
             name={user?.name || ""}
-            src={user?.avatar || ""}
+            src={otherAvatar || user?.avatar || ""}
             size={36}
             rounded="rounded-md"
           />
