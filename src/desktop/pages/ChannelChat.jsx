@@ -32,6 +32,11 @@ import Avatar from "../Components/Common/Avatar";
 import FilePreview from "../Components/Common/FilePreview";
 
 const TASK_NUMBER_REGEX = /\bTASK-\d{4}\b/i;
+
+// Small curated set for quick message reactions — deliberately short
+// (matches the mobile app) rather than a full emoji picker; reactions are
+// meant to be a fast tap, not a full picker.
+const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
 const TASK_STATUS_OPTIONS = ["Assigned", "Acknowledged", "Completed"];
 
 const monthLabels = [
@@ -195,6 +200,28 @@ const ChannelChat = () => {
     }
   };
 
+  // Toggle your own reaction on a channel message — same emoji again
+  // removes it, a different emoji replaces it.
+  const handleToggleReaction = async (msg, emoji) => {
+    setOpenMessageMenu(null);
+    try {
+      const token = localStorage.getItem("token");
+      const res = await axios.patch(
+        `${import.meta.env.VITE_BACKEND_API}/channels/messages/${msg._id}/react`,
+        { emoji },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      const reactions = res.data?.reactions;
+      if (reactions) {
+        setMessages((prev) =>
+          prev.map((m) => (m._id === msg._id ? { ...m, reactions } : m))
+        );
+      }
+    } catch (err) {
+      console.error("Reaction failed:", err);
+    }
+  };
+
   useEffect(() => {
     fetchChannel();
   }, [channelId]);
@@ -308,6 +335,14 @@ const ChannelChat = () => {
     };
     socket.on("channel-message-pinned", onPinUpdate);
 
+    // Reaction broadcasts so all clients update in real-time.
+    const onReactionUpdate = ({ messageId, reactions }) => {
+      setMessages((prev) =>
+        prev.map((m) => (m._id?.toString() === messageId?.toString() ? { ...m, reactions } : m))
+      );
+    };
+    socket.on("channel-message-reacted", onReactionUpdate);
+
     // Delete system message when report is deleted (fix #6b).
     const onMsgDeleted = ({ messageId }) => {
       if (!messageId) return;
@@ -323,6 +358,7 @@ const ChannelChat = () => {
       socket.off("channel-message-updated", onMsgUpdate);
       socket.off("channel-report-updated", onReportUpdate);
       socket.off("channel-message-pinned", onPinUpdate);
+      socket.off("channel-message-reacted", onReactionUpdate);
       socket.off("channel-message-deleted", onMsgDeleted);
     };
   }, [channelId]);
@@ -937,7 +973,7 @@ const ChannelChat = () => {
             src={channelImage}
             name={channelDisplayName}
             size={36}
-            rounded="rounded-md"
+            fit="contain"
           />
           <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
@@ -1363,7 +1399,7 @@ const ChannelChat = () => {
                           : senderEntity?.avatar || ""
                       }
                       size={36}
-                      rounded="rounded-md"
+                      
                     />
                     <div
                       ref={(el) => {
@@ -1433,6 +1469,19 @@ const ChannelChat = () => {
 
                       {openMessageMenu === msg._id && (
                         <div className="absolute right-1 top-6 z-20 bg-white border rounded shadow-lg text-xs">
+                          <div className="flex items-center gap-1 px-2 py-1.5 border-b">
+                            {QUICK_REACTIONS.map((emoji) => (
+                              <button
+                                key={emoji}
+                                type="button"
+                                onClick={() => handleToggleReaction(msg, emoji)}
+                                className="text-base leading-none hover:scale-125 transition-transform px-0.5"
+                                title="React"
+                              >
+                                {emoji}
+                              </button>
+                            ))}
+                          </div>
                           {canEdit && (
                             <button
                               type="button"
@@ -1569,6 +1618,37 @@ const ChannelChat = () => {
 
                       {msg.editedAt && !msg.isDeleted && (
                         <span className="text-chat-meta text-ink-faint italic ml-0.5">(edited)</span>
+                      )}
+
+                      {Array.isArray(msg.reactions) && msg.reactions.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {Object.entries(
+                            msg.reactions.reduce((acc, r) => {
+                              (acc[r.emoji] = acc[r.emoji] || []).push(r);
+                              return acc;
+                            }, {})
+                          ).map(([emoji, reactors]) => {
+                            const iReacted = reactors.some(
+                              (r) => String(r.userId) === String(senderId)
+                            );
+                            return (
+                              <button
+                                key={emoji}
+                                type="button"
+                                onClick={() => handleToggleReaction(msg, emoji)}
+                                title={reactors.map((r) => r.userName).filter(Boolean).join(", ")}
+                                className={`flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[11px] border transition-colors ${
+                                  iReacted
+                                    ? "bg-blue-50 border-blue-300 text-blue-700"
+                                    : "bg-white border-gray-200 text-gray-600 hover:bg-gray-50"
+                                }`}
+                              >
+                                <span>{emoji}</span>
+                                <span>{reactors.length}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
                       )}
                     </div>
                   </div>

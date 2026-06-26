@@ -23,6 +23,12 @@ import {
   tokenizeMessage,
 } from "../../utils/chatHelpers";
 import Avatar from "../Components/Common/Avatar";
+
+// Small curated set for quick message reactions — deliberately short
+// (matches the mobile app) rather than the full emoji-picker-react library
+// used elsewhere for composing messages; reactions are meant to be a
+// fast tap, not a full picker.
+const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
 import FilePreview from "../Components/Common/FilePreview";
 import ImageGrid from "../Components/Common/ImageGrid";
 import Lightbox from "../Components/Common/Lightbox";
@@ -118,6 +124,28 @@ const Chat = () => {
     }
   };
 
+  // Toggle your own reaction on a message — same emoji again removes it,
+  // a different emoji replaces it. Optimistic local update; the server
+  // also fans the real result back over the socket for the other side.
+  const handleToggleReaction = async (msg, emoji) => {
+    setOpenMessageMenu(null);
+    try {
+      const res = await axios.patch(
+        `${import.meta.env.VITE_BACKEND_API}/message/messages/${msg._id}/react`,
+        { emoji },
+        { headers: authHeader }
+      );
+      const reactions = res.data?.reactions;
+      if (reactions) {
+        setMessages((prev) =>
+          prev.map((m) => (m._id === msg._id ? { ...m, reactions } : m))
+        );
+      }
+    } catch (err) {
+      console.error("Reaction failed:", err);
+    }
+  };
+
   const markMessagesAsRead = async (senderId) => {
     try {
       await axios.post(
@@ -204,6 +232,13 @@ const Chat = () => {
     };
     socket.on("dm-message-pinned", onPinUpdate);
 
+    const onReactionUpdate = ({ messageId, reactions }) => {
+      setMessages((prev) =>
+        prev.map((m) => (m._id?.toString() === messageId?.toString() ? { ...m, reactions } : m))
+      );
+    };
+    socket.on("direct-message-reacted", onReactionUpdate);
+
     const statusListener = ({ userId, status }) => {
       if (userId === receiverId) setIsOnline(status === "online");
     };
@@ -215,6 +250,7 @@ const Chat = () => {
       unsubscribeMessage?.();
       socket.off("direct-message-updated", onMsgUpdate);
       socket.off("dm-message-pinned", onPinUpdate);
+      socket.off("direct-message-reacted", onReactionUpdate);
       onUserStatusUpdate(() => {});
     };
   }, [senderId, receiverId]);
@@ -547,7 +583,6 @@ const Chat = () => {
             name={user?.name || ""}
             src={otherAvatar || user?.avatar || ""}
             size={36}
-            rounded="rounded-md"
           />
           <div className="min-w-0">
             <h2 className="text-[15px] font-bold text-ink truncate">
@@ -628,7 +663,6 @@ const Chat = () => {
                   name={isSelf ? (selfProfile?.name || userData?.name || "Me") : (user?.name || "")}
                   src={isSelf ? (selfProfile?.avatar || "") : (otherAvatar || user?.avatar || "")}
                   size={36}
-                  rounded="rounded-md"
                 />
                 <div
                   ref={(el) => {
@@ -698,6 +732,19 @@ const Chat = () => {
 
                   {openMessageMenu === msg._id && (
                     <div className="absolute right-1 top-6 z-20 bg-white border rounded shadow-lg text-xs">
+                      <div className="flex items-center gap-1 px-2 py-1.5 border-b">
+                        {QUICK_REACTIONS.map((emoji) => (
+                          <button
+                            key={emoji}
+                            type="button"
+                            onClick={() => handleToggleReaction(msg, emoji)}
+                            className="text-base leading-none hover:scale-125 transition-transform px-0.5"
+                            title="React"
+                          >
+                            {emoji}
+                          </button>
+                        ))}
+                      </div>
                       {canEdit && (
                         <button
                           type="button"
@@ -783,6 +830,37 @@ const Chat = () => {
 
                   {msg.editedAt && !msg.isDeleted && (
                     <span className="text-chat-meta text-ink-faint italic">(edited)</span>
+                  )}
+
+                  {Array.isArray(msg.reactions) && msg.reactions.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {Object.entries(
+                        msg.reactions.reduce((acc, r) => {
+                          (acc[r.emoji] = acc[r.emoji] || []).push(r);
+                          return acc;
+                        }, {})
+                      ).map(([emoji, reactors]) => {
+                        const iReacted = reactors.some(
+                          (r) => String(r.userId) === String(senderId)
+                        );
+                        return (
+                          <button
+                            key={emoji}
+                            type="button"
+                            onClick={() => handleToggleReaction(msg, emoji)}
+                            title={reactors.map((r) => r.userName).filter(Boolean).join(", ")}
+                            className={`flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[11px] border transition-colors ${
+                              iReacted
+                                ? "bg-blue-50 border-blue-300 text-blue-700"
+                                : "bg-white border-gray-200 text-gray-600 hover:bg-gray-50"
+                            }`}
+                          >
+                            <span>{emoji}</span>
+                            <span>{reactors.length}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
                   )}
                 </div>
               </div>

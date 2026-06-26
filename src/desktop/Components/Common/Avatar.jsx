@@ -24,6 +24,10 @@ const getStableColor = (text = "DM") => {
  *  - className: extra classes for the wrapper
  *  - fontSize: optional override for letter size
  *  - rounded: tailwind rounded class, default "rounded-full"
+ *  - fit: "cover" (default, correct for profile photos — fills the circle)
+ *         or "contain" (for channel logos — shows the whole logo with no
+ *         cropping, since logos are rarely square and "cover" was zooming
+ *         into their centre and cutting off the rest)
  */
 export default function Avatar({
   name = "",
@@ -32,6 +36,7 @@ export default function Avatar({
   className = "",
   fontSize,
   rounded = "rounded-full",
+  fit = "cover",
   title,
 }) {
   const [imgError, setImgError] = useState(false);
@@ -43,11 +48,19 @@ export default function Avatar({
     fontSize ||
     (size <= 24 ? "10px" : size <= 32 ? "12px" : size <= 48 ? "16px" : "18px");
 
+  // White backdrop whenever there's an image: irrelevant for "cover" (the
+  // photo fills the box edge-to-edge so the background never shows), but
+  // needed for "contain" so a logo's transparent corners don't show
+  // through to whatever's behind the avatar (a dark sidebar, etc).
+  // box-sizing: border-box keeps the border INSIDE the given size instead
+  // of growing the element past it.
   const wrapperStyle = {
     width: dimension,
     height: dimension,
-    backgroundColor: useImage ? "transparent" : getStableColor(name || initial),
+    backgroundColor: useImage ? "#ffffff" : getStableColor(name || initial),
     fontSize: computedFontSize,
+    border: "1.5px solid rgba(148, 163, 184, 0.55)",
+    boxSizing: "border-box",
   };
 
   return (
@@ -60,7 +73,7 @@ export default function Avatar({
         <img
           src={src}
           alt={name || "avatar"}
-          className="w-full h-full object-cover"
+          className={`w-full h-full ${fit === "contain" ? "object-contain" : "object-cover"}`}
           onError={() => setImgError(true)}
         />
       ) : (

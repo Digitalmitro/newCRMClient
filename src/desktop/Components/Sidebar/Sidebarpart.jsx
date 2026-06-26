@@ -268,7 +268,7 @@ function Sidebarpart() {
                       name={channel?.name}
                       src={channel?.image || ""}
                       size={18}
-                      rounded="rounded-sm"
+                      fit="contain"
                       fontSize="10px"
                     />
                     <span className="truncate flex-1 min-w-0 font-medium text-white">
