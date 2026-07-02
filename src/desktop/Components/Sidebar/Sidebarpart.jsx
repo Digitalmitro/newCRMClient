@@ -271,9 +271,14 @@ function Sidebarpart() {
                       fit="contain"
                       fontSize="10px"
                     />
-                    <span className="truncate flex-1 min-w-0 font-medium text-white">
+                    <span className="truncate flex-1 min-w-0 font-medium text-white flex items-center gap-1.5">
                       <span className="text-sidebar-muted mr-0.5">#</span>
                       {channel.name}
+                      <span
+                        className="shrink-0 inline-block w-2 h-2 rounded-full"
+                        style={{ backgroundColor: channel.statusTag === 'Active' || !channel.statusTag ? '#22c55e' : '#ef4444' }}
+                        title={channel.statusTag || 'Active'}
+                      />
                     </span>
                     {channel?.unreadMessages > 0 && (
                       <span className="slack-unread">{channel.unreadMessages}</span>
