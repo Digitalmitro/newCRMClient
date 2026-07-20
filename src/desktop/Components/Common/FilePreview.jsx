@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { downloadFile, getFileNameFromUrl } from "../../../utils/helper";
+import { downloadFile, getFileNameFromUrl, resolveFileUrl } from "../../../utils/helper";
 import {
   isAudio,
   isImage,
@@ -21,21 +21,36 @@ import {
  * Clicking the type chip or "Preview" link opens an overlay viewer where
  * possible (image lightbox / PDF / video / audio) so the user can preview
  * without downloading.
+ *
+ * `url` may be an absolute Cloudinary URL or a root-relative backend path
+ * (e.g. "/uploads/reports/x.pdf" for locally-stored files like channel task
+ * reports) — resolveFileUrl() normalizes either into something that actually
+ * loads from this origin.
+ *
+ * `label`, if given, overrides the displayed name (e.g. a monthly report's
+ * human title like "July 2026 task report" instead of its disk filename,
+ * which is prefixed with the channel id and a timestamp). The real filename
+ * is still used for the actual download.
  */
-export default function FilePreview({ url, compact = false }) {
+export default function FilePreview({ url, compact = false, label }) {
   const [overlay, setOverlay] = useState(false);
-  const fileName = getFileNameFromUrl(url);
-  const extension = getFileExtension(url);
+  const resolvedUrl = resolveFileUrl(url);
+  const realFileName = getFileNameFromUrl(resolvedUrl);
+  const extension = getFileExtension(resolvedUrl);
+  // Display text prefers the friendly label; the actual saved-as name keeps
+  // the real extension either way so downloads open correctly.
+  const fileName = label || realFileName;
+  const downloadName = label && extension ? `${label}.${extension}` : realFileName;
   const badge = extension ? extension.toUpperCase() : "FILE";
 
-  const previewable = isImage(url) || isVideo(url) || isAudio(url) || isPdf(url);
+  const previewable = isImage(resolvedUrl) || isVideo(resolvedUrl) || isAudio(resolvedUrl) || isPdf(resolvedUrl);
 
   // The compact "type indicator" row used for non-previewable files.
   const typeRow = (
     <div className="inline-flex items-center gap-2 bg-white/90 text-gray-800 p-2 rounded-lg max-w-fit">
       <span
         className={`text-[10px] font-semibold px-2 py-0.5 rounded ${getFileTypeColor(
-          url
+          resolvedUrl
         )}`}
         title={`${badge} file`}
       >
@@ -58,7 +73,7 @@ export default function FilePreview({ url, compact = false }) {
       )}
       <button
         type="button"
-        onClick={() => downloadFile(url)}
+        onClick={() => downloadFile(resolvedUrl, downloadName)}
         className="px-2 py-1 bg-slate-900 text-white text-xs rounded-full shrink-0 shadow-md hover:bg-slate-800"
       >
         Download
@@ -70,38 +85,38 @@ export default function FilePreview({ url, compact = false }) {
   let inline = null;
   if (compact) {
     inline = null;
-  } else if (isImage(url)) {
+  } else if (isImage(resolvedUrl)) {
     inline = (
       <button type="button" onClick={() => setOverlay(true)} className="block">
         <img
-          src={url}
+          src={resolvedUrl}
           alt={fileName}
           className="w-44 max-w-full h-auto rounded-md cursor-zoom-in"
         />
       </button>
     );
-  } else if (isVideo(url)) {
+  } else if (isVideo(resolvedUrl)) {
     inline = (
       <video
-        src={url}
+        src={resolvedUrl}
         controls
         preload="metadata"
         className="w-[220px] max-w-full rounded-md"
       />
     );
-  } else if (isAudio(url)) {
+  } else if (isAudio(resolvedUrl)) {
     inline = (
       <audio
-        src={url}
+        src={resolvedUrl}
         controls
         preload="metadata"
         className="w-[220px] max-w-full"
       />
     );
-  } else if (isPdf(url)) {
+  } else if (isPdf(resolvedUrl)) {
     inline = (
       <iframe
-        src={url}
+        src={resolvedUrl}
         title={fileName}
         className="w-[220px] h-[160px] max-w-full rounded-md border border-gray-200 bg-white"
       />
@@ -132,29 +147,29 @@ export default function FilePreview({ url, compact = false }) {
             >
               ×
             </button>
-            {isImage(url) && (
+            {isImage(resolvedUrl) && (
               <img
-                src={url}
+                src={resolvedUrl}
                 alt={fileName}
                 className="w-full h-full max-h-[90vh] object-contain"
               />
             )}
-            {isVideo(url) && (
+            {isVideo(resolvedUrl) && (
               <video
-                src={url}
+                src={resolvedUrl}
                 controls
                 autoPlay
                 className="w-full max-h-[90vh]"
               />
             )}
-            {isAudio(url) && (
+            {isAudio(resolvedUrl) && (
               <div className="bg-white rounded p-6 flex items-center justify-center">
-                <audio src={url} controls autoPlay className="w-full" />
+                <audio src={resolvedUrl} controls autoPlay className="w-full" />
               </div>
             )}
-            {isPdf(url) && (
+            {isPdf(resolvedUrl) && (
               <iframe
-                src={url}
+                src={resolvedUrl}
                 title={fileName}
                 className="w-full h-[85vh] bg-white rounded"
               />

@@ -1,3 +1,15 @@
+// Locally-stored files (e.g. channel task reports) come back from the API
+// as a root-relative path like "/uploads/reports/x.pdf" — correct on the
+// backend's own origin, but wrong once used as <img>/<iframe> src or a
+// fetch() target from a frontend served on a different origin/port.
+// Cloudinary and other already-absolute URLs pass through untouched.
+export const resolveFileUrl = (url) => {
+  if (!url) return url;
+  if (/^https?:\/\//i.test(url)) return url;
+  const base = (import.meta.env.VITE_BACKEND_API || "").replace(/\/+$/, "");
+  return `${base}${url.startsWith("/") ? url : `/${url}`}`;
+};
+
 const safeDecode = (value) => {
   try {
     return decodeURIComponent(value);
@@ -112,7 +124,8 @@ const getDownloadUrl = (url, fallbackName) => {
 // immediately triggers a download because of the attachment header.
 export const downloadFile = async (url, fallbackName) => {
   if (!url) return;
-  const downloadUrl = getDownloadUrl(url, fallbackName);
+  const absoluteUrl = resolveFileUrl(url);
+  const downloadUrl = getDownloadUrl(absoluteUrl, fallbackName);
   try {
     // We use `mode: 'cors'` explicitly so failures throw rather than returning
     // an opaque response we can't read.
@@ -124,7 +137,7 @@ export const downloadFile = async (url, fallbackName) => {
     const match = disposition.match(/filename\*?=(?:UTF-8'')?"?([^";]+)"?/i);
     const headerName = match?.[1] ? safeDecode(match[1]) : null;
     const contentType = response.headers.get("content-type") || "";
-    const rawName = headerName || fallbackName || getFileNameFromUrl(url);
+    const rawName = headerName || fallbackName || getFileNameFromUrl(absoluteUrl);
     const fileName = ensureExtension(rawName, contentType);
     const a = document.createElement("a");
     a.href = blobUrl;
@@ -142,7 +155,7 @@ export const downloadFile = async (url, fallbackName) => {
     a.href = downloadUrl;
     a.target = "_blank";
     a.rel = "noopener noreferrer";
-    a.download = fallbackName || getFileNameFromUrl(url) || "download";
+    a.download = fallbackName || getFileNameFromUrl(absoluteUrl) || "download";
     document.body.appendChild(a);
     a.click();
     a.remove();

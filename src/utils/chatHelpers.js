@@ -38,7 +38,11 @@ export const isPresentation = (url) => /\.(ppt|pptx)(\?|$)/i.test(url);
 export const isWordDoc = (url) => /\.(doc|docx)(\?|$)/i.test(url);
 export const isArchive = (url) => /\.(zip|rar|7z|tar|gz)(\?|$)/i.test(url);
 export const isLikelyAttachment = (url) =>
-  url?.startsWith("http") &&
+  // "/uploads/..." (locally-stored files, e.g. channel task reports) is as
+  // unambiguous a signal as an absolute URL — free-form chat text never
+  // starts with a bare "/". Keeping both prefixes covers Cloudinary
+  // (absolute) and local-disk (root-relative) storage alike.
+  (url?.startsWith("http") || url?.startsWith("/")) &&
   (isImage(url) ||
     isDocument(url) ||
     isVideo(url) ||

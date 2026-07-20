@@ -913,11 +913,16 @@ const ChannelChat = () => {
       );
     }
     const value = msg.message;
+    // System messages (e.g. a monthly/task report) carry a human-friendly
+    // title in replyPreview.message ("July 2026 task report") — prefer that
+    // over the disk filename (which is prefixed with the channel id and a
+    // timestamp) when the message body itself is just the file's path.
+    const systemFileLabel = msg.isSystem ? msg.replyPreview?.message : undefined;
     if (isImage(value)) {
-      return <FilePreview url={value} />;
+      return <FilePreview url={value} label={systemFileLabel} />;
     }
     if (isLikelyAttachment(value)) {
-      return <FilePreview url={value} />;
+      return <FilePreview url={value} label={systemFileLabel} />;
     }
     // Always tokenise — handles single link, multiple links, mixed text+links.
     const tokens = tokenizeMessage(value || "", mentionIdToName);
