@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { flushSync } from "react-dom";
 import { IoPeopleSharp } from "react-icons/io5";
 import { Send, Paperclip, CornerUpLeft, X, Pencil, Trash2 } from "lucide-react";
 import { BsPin, BsPinFill } from "react-icons/bs";
@@ -63,6 +64,11 @@ const ChannelChat = () => {
   const senderId = userData?.userId;
 
   const [messages, setMessages] = useState([]);
+  // Infinite-scroll-up history: page 1 loads with the channel; scrolling
+  // near the top of the list loads older pages and prepends them.
+  const [nextMessagePage, setNextMessagePage] = useState(1);
+  const [hasMoreMessages, setHasMoreMessages] = useState(false);
+  const [loadingOlderMessages, setLoadingOlderMessages] = useState(false);
   const [channelInfo, setChannelsInfo] = useState();
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   // Pending attachments (issue #4 — multiple images at once). Stored as an
@@ -115,6 +121,13 @@ const ChannelChat = () => {
   const messageRefs = useRef({});
   const highlightTimerRef = useRef(null);
   const forceBottomUntilRef = useRef(0);
+  // Timestamp; queueBottomScroll no-ops until this passes. Set by
+  // loadOlderMessages so prepending older history doesn't yank the view
+  // back down to the latest message the instant messages.length changes —
+  // same "time window" approach as forceBottomUntilRef above, just used to
+  // suppress instead of force, since we can't rely on effect scheduling
+  // order relative to exactly when a ref flips back.
+  const suppressBottomScrollUntilRef = useRef(0);
   const fileInputRef = useRef(null);
   const inputElRef = useRef(null);
 
@@ -232,10 +245,12 @@ const ChannelChat = () => {
       if (!channelId) return;
       try {
         const response = await fetch(
-          `${import.meta.env.VITE_BACKEND_API}/channels/${channelId}`
+          `${import.meta.env.VITE_BACKEND_API}/channels/${channelId}?page=1`
         );
         const data = await response.json();
         setMessages(data?.messages || []);
+        setHasMoreMessages(!!data?.pagination?.hasMore);
+        setNextMessagePage(data?.pagination?.nextPage || 2);
       } catch (error) {
         console.error("Error fetching channel messages:", error);
       }
@@ -373,6 +388,7 @@ const ChannelChat = () => {
   }, []);
 
   const queueBottomScroll = useCallback(() => {
+    if (Date.now() < suppressBottomScrollUntilRef.current) return () => {}; // don't fight loadOlderMessages' scroll restore
     forceBottomUntilRef.current = Date.now() + 1500;
     scrollToLatestMessage("auto");
     let nestedRaf = 0;
@@ -396,6 +412,59 @@ const ChannelChat = () => {
     if (activeTab !== "chat") return;
     return queueBottomScroll();
   }, [activeTab, channelId, messages.length, queueBottomScroll]);
+
+  // Loads the next older page and prepends it, keeping whatever message the
+  // user was looking at in the same spot on screen (rather than jumping)
+  // by measuring scrollHeight before/after with flushSync forcing the
+  // prepend to actually paint before we read it back.
+  const loadOlderMessages = useCallback(async () => {
+    if (!channelId || !hasMoreMessages || loadingOlderMessages) return;
+    const container = messageListRef.current;
+    const prevScrollHeight = container?.scrollHeight ?? 0;
+    const prevScrollTop = container?.scrollTop ?? 0;
+
+    // Held for a full second past this operation, not just cleared the
+    // instant we're done — the messages.length effect this suppresses runs
+    // as a passive effect, not synchronously with the state update below,
+    // so a window that outlives our own synchronous work is what actually
+    // makes this reliable (same reasoning as forceBottomUntilRef's window).
+    suppressBottomScrollUntilRef.current = Date.now() + 1000;
+    setLoadingOlderMessages(true);
+    try {
+      const response = await fetch(
+        `${import.meta.env.VITE_BACKEND_API}/channels/${channelId}?page=${nextMessagePage}`
+      );
+      const data = await response.json();
+      const older = data?.messages || [];
+      if (older.length) {
+        flushSync(() => {
+          setMessages((prev) => {
+            const existingIds = new Set(prev.map((m) => m._id));
+            return [...older.filter((m) => !existingIds.has(m._id)), ...prev];
+          });
+        });
+        const el = messageListRef.current;
+        if (el) {
+          el.scrollTop = el.scrollHeight - prevScrollHeight + prevScrollTop;
+        }
+      }
+      setHasMoreMessages(!!data?.pagination?.hasMore);
+      setNextMessagePage(data?.pagination?.nextPage || nextMessagePage + 1);
+    } catch (error) {
+      console.error("Error loading older messages:", error);
+    } finally {
+      setLoadingOlderMessages(false);
+    }
+  }, [channelId, nextMessagePage, hasMoreMessages, loadingOlderMessages]);
+
+  const handleMessageListScroll = useCallback(
+    (e) => {
+      if (e.target.scrollTop < 120) {
+        loadOlderMessages();
+      }
+    },
+    [loadOlderMessages]
+  );
 
   // pendingFiles already carries previewUrl per attachment so we don't need
   // a separate effect to derive it. Cleanup of the object URLs happens when
@@ -1356,9 +1425,15 @@ const ChannelChat = () => {
           <div
             ref={messageListRef}
             className="flex-1 px-2 lg:px-4 overflow-y-auto scrollable pb-2"
+            onScroll={handleMessageListScroll}
             onLoadCapture={handleMessageMediaLoaded}
             onLoadedMetadataCapture={handleMessageMediaLoaded}
           >
+            {loadingOlderMessages && (
+              <div className="flex justify-center py-2 text-[12px] text-gray-400">
+                Loading earlier messages…
+              </div>
+            )}
             {messages.map((msg, index) => {
               const isSelf = String(msg.sender) === String(senderId);
               const taskNumber = msg?.isSystem ? extractTaskNumber(msg?.message) : "";

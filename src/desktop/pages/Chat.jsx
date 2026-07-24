@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef } from "react";
+import { flushSync } from "react-dom";
 import axios from "axios";
 import { Send, Paperclip, CornerUpLeft, X, Pencil, Trash2 } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -76,9 +77,19 @@ const Chat = () => {
   }, [receiverId]);
   const [isOnline, setIsOnline] = useState(false);
   const [messages, setMessages] = useState([]);
+  // Infinite-scroll-up history: page 1 loads with the conversation;
+  // scrolling near the top of the list loads older pages and prepends them.
+  const [nextMessagePage, setNextMessagePage] = useState(1);
+  const [hasMoreMessages, setHasMoreMessages] = useState(false);
+  const [loadingOlderMessages, setLoadingOlderMessages] = useState(false);
   const [input, setInput] = useState("");
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const messagesEndRef = useRef(null);
+  const messageListRef = useRef(null);
+  // Timestamp; the scroll-to-bottom effect below no-ops until this passes —
+  // set by loadOlderMessages so prepending older history doesn't yank the
+  // view back down to the latest message the instant messages changes.
+  const suppressBottomScrollUntilRef = useRef(0);
   const messageRefs = useRef({});
   const highlightTimerRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -180,9 +191,12 @@ const Chat = () => {
     const fetchMessages = async () => {
       try {
         const res = await axios.get(
-          `${import.meta.env.VITE_BACKEND_API}/message/messages/${senderId}/${receiverId}`
+          `${import.meta.env.VITE_BACKEND_API}/message/messages/${senderId}/${receiverId}`,
+          { params: { page: 1 } }
         );
         setMessages(res.data?.messages || []);
+        setHasMoreMessages(!!res.data?.pagination?.hasMore);
+        setNextMessagePage(res.data?.pagination?.nextPage || 2);
       } catch (error) {
         console.error("Error fetching messages:", error);
       }
@@ -256,8 +270,53 @@ const Chat = () => {
   }, [senderId, receiverId]);
 
   useEffect(() => {
+    if (Date.now() < suppressBottomScrollUntilRef.current) return; // don't fight loadOlderMessages' scroll restore
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  // Loads the next older page and prepends it, keeping whatever message the
+  // user was looking at in the same spot on screen (rather than jumping) —
+  // same approach as ChannelChat.jsx's version of this.
+  const loadOlderMessages = async () => {
+    if (!senderId || !receiverId || !hasMoreMessages || loadingOlderMessages) return;
+    const container = messageListRef.current;
+    const prevScrollHeight = container?.scrollHeight ?? 0;
+    const prevScrollTop = container?.scrollTop ?? 0;
+
+    suppressBottomScrollUntilRef.current = Date.now() + 1000;
+    setLoadingOlderMessages(true);
+    try {
+      const res = await axios.get(
+        `${import.meta.env.VITE_BACKEND_API}/message/messages/${senderId}/${receiverId}`,
+        { params: { page: nextMessagePage } }
+      );
+      const older = res.data?.messages || [];
+      if (older.length) {
+        flushSync(() => {
+          setMessages((prev) => {
+            const existingIds = new Set(prev.map((m) => m._id));
+            return [...older.filter((m) => !existingIds.has(m._id)), ...prev];
+          });
+        });
+        const el = messageListRef.current;
+        if (el) {
+          el.scrollTop = el.scrollHeight - prevScrollHeight + prevScrollTop;
+        }
+      }
+      setHasMoreMessages(!!res.data?.pagination?.hasMore);
+      setNextMessagePage(res.data?.pagination?.nextPage || nextMessagePage + 1);
+    } catch (error) {
+      console.error("Error loading older messages:", error);
+    } finally {
+      setLoadingOlderMessages(false);
+    }
+  };
+
+  const handleMessageListScroll = (e) => {
+    if (e.target.scrollTop < 120) {
+      loadOlderMessages();
+    }
+  };
 
   useEffect(() => {
     return () => {
@@ -634,7 +693,16 @@ const Chat = () => {
         </div>
       )}
 
-      <div className="flex-1 px-2 lg:px-4 overflow-y-auto slack-scroll pb-2">
+      <div
+        ref={messageListRef}
+        className="flex-1 px-2 lg:px-4 overflow-y-auto slack-scroll pb-2"
+        onScroll={handleMessageListScroll}
+      >
+        {loadingOlderMessages && (
+          <div className="flex justify-center py-2 text-[12px] text-gray-400">
+            Loading earlier messages…
+          </div>
+        )}
         {messages.map((msg, index) => {
           const isSelf = String(msg.sender) === String(senderId);
           const senderLabel = isSelf ? "You" : user?.name || "Unknown";
