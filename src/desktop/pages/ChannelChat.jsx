@@ -804,7 +804,7 @@ const ChannelChat = () => {
       );
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        alert(data?.error || "Could not delete channel");
+        alert(data?.message || data?.error || "Could not delete channel");
         return;
       }
       navigate("/channels");
