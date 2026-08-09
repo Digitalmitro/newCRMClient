@@ -115,16 +115,20 @@ export const sendNotification = (userId, title, description) => {
 
 // Listen for incoming messages
 export const onMessageReceived = (callback) => {
-  socket.on("new-message", (message) => {
-    callback(message);
-  });
+  socket.on("new-message", callback);
+  return () => {
+    socket.off("new-message", callback);
+  };
 };
 
 
-export const onNotificationReceived = (callback) => {
+export const onNotificationReceived = (callback, options = {}) => {
+  const { showBrowserNotification = false } = options;
   const handler = (notification) => {
     callback(notification);
-    showNotification(notification.title, notification.description);
+    if (showBrowserNotification) {
+      showNotification(notification.title, notification.description);
+    }
   };
 
   socket.on("receive-notification", handler);

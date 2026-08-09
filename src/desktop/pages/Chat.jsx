@@ -1,129 +1,339 @@
 import { useEffect, useState, useRef } from "react";
+import { flushSync } from "react-dom";
 import axios from "axios";
-import profile from "../../assets/desktop/profileIcon.svg";
-import { Send, Paperclip } from "lucide-react";
-import { useLocation } from "react-router-dom";
-import socket, {
-  sendMessage,
+import { Send, Paperclip, CornerUpLeft, X, Pencil, Trash2 } from "lucide-react";
+import { useLocation, useNavigate } from "react-router-dom";
+import {
   onMessageReceived,
   connectSocket,
   onUserStatusUpdate,
   fetchOnlineUsers,
 } from "../../utils/socket";
+import socket from "../../utils/socket";
 import { useAuth } from "../../context/authContext";
 import moment from "moment";
-import { BsEmojiSmile } from "react-icons/bs";
+import { BsEmojiSmile, BsPin, BsPinFill } from "react-icons/bs";
 import EmojiPicker from "emoji-picker-react";
-import { downloadImage } from "../../utils/helper";
+import { downloadFile, getFileNameFromUrl } from "../../utils/helper";
+import {
+  isImage,
+  isLikelyAttachment,
+  getMessagePreview,
+  isWithinEditWindow,
+  formatRemainingEditWindow,
+  tokenizeMessage,
+} from "../../utils/chatHelpers";
+import Avatar from "../Components/Common/Avatar";
 
+// Small curated set for quick message reactions — deliberately short
+// (matches the mobile app) rather than the full emoji-picker-react library
+// used elsewhere for composing messages; reactions are meant to be a
+// fast tap, not a full picker.
+const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
+import FilePreview from "../Components/Common/FilePreview";
+import ImageGrid from "../Components/Common/ImageGrid";
+import Lightbox from "../Components/Common/Lightbox";
 
 const Chat = () => {
   const location = useLocation();
   const user = location.state;
   const receiverId = user?.id;
   const selectedUser = location?.state?.selectedUsers;
-  const { userData, getAllUsers } = useAuth();
+  const navigate = useNavigate();
+  const { userData } = useAuth();
   const senderId = userData?.userId;
+
+  // Fetch own profile to get self avatar (userData from JWT has no avatar)
+  const [selfProfile, setSelfProfile] = useState(null);
+  // Fetch other person's avatar (location.state only has id+name, no avatar)
+  const [otherAvatar, setOtherAvatar] = useState("");
+
+  useEffect(() => {
+    // Reset avatar immediately when conversation changes
+    setOtherAvatar("");
+    const t = localStorage.getItem("token");
+    if (!t) return;
+    // Own profile (only fetch once)
+    if (!selfProfile) {
+      fetch(`${import.meta.env.VITE_BACKEND_API}/profile/me`, {
+        headers: { Authorization: `Bearer ${t}` },
+      })
+        .then((r) => r.json())
+        .then((d) => { if (d?.success) setSelfProfile(d.profile); })
+        .catch(() => {});
+    }
+    // Other person's avatar — fetch fresh every time receiverId changes
+    if (receiverId) {
+      fetch(`${import.meta.env.VITE_BACKEND_API}/profile/avatars?ids=${receiverId}`, {
+        headers: { Authorization: `Bearer ${t}` },
+      })
+        .then((r) => r.json())
+        .then((d) => {
+          const found = d?.avatars?.[receiverId?.toString()];
+          if (found?.avatar) setOtherAvatar(found.avatar);
+        })
+        .catch(() => {});
+    }
+  }, [receiverId]);
   const [isOnline, setIsOnline] = useState(false);
   const [messages, setMessages] = useState([]);
+  // Infinite-scroll-up history: page 1 loads with the conversation;
+  // scrolling near the top of the list loads older pages and prepends them.
+  const [nextMessagePage, setNextMessagePage] = useState(1);
+  const [hasMoreMessages, setHasMoreMessages] = useState(false);
+  const [loadingOlderMessages, setLoadingOlderMessages] = useState(false);
   const [input, setInput] = useState("");
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const messagesEndRef = useRef(null);
+  const messageListRef = useRef(null);
+  // Timestamp; the scroll-to-bottom effect below no-ops until this passes —
+  // set by loadOlderMessages so prepending older history doesn't yank the
+  // view back down to the latest message the instant messages changes.
+  const suppressBottomScrollUntilRef = useRef(0);
+  const messageRefs = useRef({});
+  const highlightTimerRef = useRef(null);
+  const fileInputRef = useRef(null);
   const [uploading, setUploading] = useState(false);
-  const [file, setFile] = useState(null);
   const [loading, setloading] = useState(false);
+  // Pending attachments — array of { file, previewUrl } so multiple files can
+  // be queued before sending. The send flow groups them all into a single
+  // message with `attachments: []` (issue #4).
+  const [pendingFiles, setPendingFiles] = useState([]);
+  const [lightbox, setLightbox] = useState(null);
+  const [replyTarget, setReplyTarget] = useState(null);
+  const [highlightedId, setHighlightedId] = useState(null);
+  const [editingMessage, setEditingMessage] = useState(null);
+  const [pinnedMessages, setPinnedMessages] = useState([]);
+  const [showPinned, setShowPinned] = useState(false);
+  const [openMessageMenu, setOpenMessageMenu] = useState(null);
+  const authHeader = { Authorization: `Bearer ${localStorage.getItem("token")}` };
+
+  const fetchPinned = async () => {
+    if (!receiverId) return;
+    try {
+      const res = await axios.get(
+        `${import.meta.env.VITE_BACKEND_API}/message/pinned?with=${receiverId}`,
+        { headers: authHeader }
+      );
+      if (res.data?.success) setPinnedMessages(res.data.pinned || []);
+    } catch (_) {}
+  };
+
+  const handleTogglePin = async (msg) => {
+    try {
+      await axios.patch(
+        `${import.meta.env.VITE_BACKEND_API}/message/messages/${msg._id}/pin`,
+        {},
+        { headers: authHeader }
+      );
+      setMessages((prev) =>
+        prev.map((m) => (m._id === msg._id ? { ...m, isPinned: !m.isPinned } : m))
+      );
+      await fetchPinned();
+    } catch (err) {
+      console.error("Pin failed:", err);
+    }
+  };
+
+  // Toggle your own reaction on a message — same emoji again removes it,
+  // a different emoji replaces it. Optimistic local update; the server
+  // also fans the real result back over the socket for the other side.
+  const handleToggleReaction = async (msg, emoji) => {
+    setOpenMessageMenu(null);
+    try {
+      const res = await axios.patch(
+        `${import.meta.env.VITE_BACKEND_API}/message/messages/${msg._id}/react`,
+        { emoji },
+        { headers: authHeader }
+      );
+      const reactions = res.data?.reactions;
+      if (reactions) {
+        setMessages((prev) =>
+          prev.map((m) => (m._id === msg._id ? { ...m, reactions } : m))
+        );
+      }
+    } catch (err) {
+      console.error("Reaction failed:", err);
+    }
+  };
 
   const markMessagesAsRead = async (senderId) => {
     try {
       await axios.post(
         `${import.meta.env.VITE_BACKEND_API}/message/messages/mark-as-read`,
         { senderId },
-        {
-          headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
-        }
+        { headers: authHeader }
       );
     } catch (error) {
       console.error("Error marking messages as read:", error);
     }
   };
 
-  // Call this function when the chat opens
   useEffect(() => {
-    if (receiverId) {
-      markMessagesAsRead(receiverId);
-    }
+    if (receiverId) markMessagesAsRead(receiverId);
   }, [receiverId]);
 
-  // ✅ Connect Socket and Load Data
+  useEffect(() => {
+    setReplyTarget(null);
+    setHighlightedId(null);
+    setEditingMessage(null);
+    setInput("");
+  }, [receiverId]);
+
+  useEffect(() => {
+    return () => {
+      if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+    };
+  }, []);
+
   useEffect(() => {
     connectSocket();
-
-    // ✅ Fetch chat history
     const fetchMessages = async () => {
-      if (!senderId || !receiverId) return;
       try {
         const res = await axios.get(
-          `${import.meta.env.VITE_BACKEND_API
-          }/message/messages/${senderId}/${receiverId}`
+          `${import.meta.env.VITE_BACKEND_API}/message/messages/${senderId}/${receiverId}`,
+          { params: { page: 1 } }
         );
-        setMessages(res.data?.messages);
+        setMessages(res.data?.messages || []);
+        setHasMoreMessages(!!res.data?.pagination?.hasMore);
+        setNextMessagePage(res.data?.pagination?.nextPage || 2);
       } catch (error) {
         console.error("Error fetching messages:", error);
       }
     };
+
     fetchMessages();
 
-    // ✅ Fetch online users on mount
     fetchOnlineUsers((onlineUsers) => {
       setIsOnline(onlineUsers.includes(receiverId));
     });
 
-    // ✅ Listen for incoming messages
     const messageListener = (newMessage) => {
       if (
-        (newMessage.sender === senderId &&
-          newMessage.receiver === receiverId) ||
+        (newMessage.sender === senderId && newMessage.receiver === receiverId) ||
         (newMessage.sender === receiverId && newMessage.receiver === senderId)
       ) {
-        setMessages((prevMessages) => [...prevMessages, newMessage]);
+        setMessages((prev) => {
+          if (newMessage?._id && prev.some((m) => m._id === newMessage._id)) {
+            return prev;
+          }
+          return [...prev, newMessage];
+        });
       }
     };
-    onMessageReceived(messageListener);
+    const unsubscribeMessage = onMessageReceived(messageListener);
 
-    // ✅ Listen for user status updates
+    // Edit/delete updates fan in for both sides (feature #3 + #5).
+    const onMsgUpdate = (updated) => {
+      if (!updated?._id) return;
+      const isThisChat =
+        (String(updated.sender) === String(senderId) &&
+          String(updated.receiver) === String(receiverId)) ||
+        (String(updated.sender) === String(receiverId) &&
+          String(updated.receiver) === String(senderId));
+      if (!isThisChat) return;
+      setMessages((prev) =>
+        prev.map((m) => (m._id === updated._id ? { ...m, ...updated } : m))
+      );
+    };
+    socket.on("direct-message-updated", onMsgUpdate);
+
+    const onPinUpdate = ({ messageId, isPinned }) => {
+      setMessages((prev) =>
+        prev.map((m) => (m._id?.toString() === messageId?.toString() ? { ...m, isPinned } : m))
+      );
+      fetchPinned();
+    };
+    socket.on("dm-message-pinned", onPinUpdate);
+
+    const onReactionUpdate = ({ messageId, reactions }) => {
+      setMessages((prev) =>
+        prev.map((m) => (m._id?.toString() === messageId?.toString() ? { ...m, reactions } : m))
+      );
+    };
+    socket.on("direct-message-reacted", onReactionUpdate);
+
     const statusListener = ({ userId, status }) => {
-      if (userId === receiverId) {
-        setIsOnline(status === "online");
-      }
+      if (userId === receiverId) setIsOnline(status === "online");
     };
     onUserStatusUpdate(statusListener);
 
-    // ✅ Cleanup on unmount
+    fetchPinned();
+
     return () => {
-      // console.log("🛑 Unsubscribing from listeners");
-      onMessageReceived(() => { }); // Remove listener
-      onUserStatusUpdate(() => { }); // Remove listener
+      unsubscribeMessage?.();
+      socket.off("direct-message-updated", onMsgUpdate);
+      socket.off("dm-message-pinned", onPinUpdate);
+      socket.off("direct-message-reacted", onReactionUpdate);
+      onUserStatusUpdate(() => {});
     };
   }, [senderId, receiverId]);
 
-  // ✅ Auto-scroll to latest message
   useEffect(() => {
+    if (Date.now() < suppressBottomScrollUntilRef.current) return; // don't fight loadOlderMessages' scroll restore
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  //file upload
-  const uploadFile = async (file) => {
+  // Loads the next older page and prepends it, keeping whatever message the
+  // user was looking at in the same spot on screen (rather than jumping) —
+  // same approach as ChannelChat.jsx's version of this.
+  const loadOlderMessages = async () => {
+    if (!senderId || !receiverId || !hasMoreMessages || loadingOlderMessages) return;
+    const container = messageListRef.current;
+    const prevScrollHeight = container?.scrollHeight ?? 0;
+    const prevScrollTop = container?.scrollTop ?? 0;
+
+    suppressBottomScrollUntilRef.current = Date.now() + 1000;
+    setLoadingOlderMessages(true);
+    try {
+      const res = await axios.get(
+        `${import.meta.env.VITE_BACKEND_API}/message/messages/${senderId}/${receiverId}`,
+        { params: { page: nextMessagePage } }
+      );
+      const older = res.data?.messages || [];
+      if (older.length) {
+        flushSync(() => {
+          setMessages((prev) => {
+            const existingIds = new Set(prev.map((m) => m._id));
+            return [...older.filter((m) => !existingIds.has(m._id)), ...prev];
+          });
+        });
+        const el = messageListRef.current;
+        if (el) {
+          el.scrollTop = el.scrollHeight - prevScrollHeight + prevScrollTop;
+        }
+      }
+      setHasMoreMessages(!!res.data?.pagination?.hasMore);
+      setNextMessagePage(res.data?.pagination?.nextPage || nextMessagePage + 1);
+    } catch (error) {
+      console.error("Error loading older messages:", error);
+    } finally {
+      setLoadingOlderMessages(false);
+    }
+  };
+
+  const handleMessageListScroll = (e) => {
+    if (e.target.scrollTop < 120) {
+      loadOlderMessages();
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      pendingFiles.forEach((p) => p.previewUrl && URL.revokeObjectURL(p.previewUrl));
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const uploadFile = async (selected) => {
     setUploading(true);
     const formData = new FormData();
-    formData.append("file", file);
-
+    formData.append("file", selected);
     try {
       const response = await axios.post(
         `${import.meta.env.VITE_BACKEND_API}/files/upload`,
         formData,
-        {
-          headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
-        }
+        { headers: authHeader }
       );
       setUploading(false);
       return response.data;
@@ -134,174 +344,697 @@ const Chat = () => {
     }
   };
 
-  // ✅ Send message
-  const handleSendMessage = async () => {
-    if (!input.trim() && !file) return;
+  const buildFileMessageUrl = (url, fileName) => {
+    if (!url || !fileName) return url;
+    if (url.includes("filename=")) return url;
+    const separator = url.includes("?") ? "&" : "?";
+    return `${url}${separator}filename=${encodeURIComponent(fileName)}`;
+  };
 
-    let messageContent = input.trim();
-
-    if (file) {
-      setloading(true)
-      const fileUrl = await uploadFile(file);
-
-      if (!fileUrl) return;
-      messageContent = fileUrl.fileUrl;
-      setFile(null);
-      setloading(false)
+  const handleClearChat = async () => {
+    if (!receiverId) return;
+    const confirmed = window.confirm(
+      "Clear all messages in this chat? This can't be undone."
+    );
+    if (!confirmed) return;
+    try {
+      await axios.post(
+        `${import.meta.env.VITE_BACKEND_API}/message/clear`,
+        { otherUserId: receiverId },
+        { headers: authHeader }
+      );
+      setMessages([]);
+      alert("Chat cleared");
+    } catch (error) {
+      alert("Unable to clear chat. Please try again.");
     }
+  };
+
+  const handleStartEdit = (msg) => {
+    if (!msg) return;
+    if (msg.isDeleted) return;
+    if (String(msg.sender) !== String(senderId)) return;
+    if (!isWithinEditWindow(msg.createdAt)) return;
+    if (msg.message?.startsWith("http")) return; // attachments aren't editable
+    setEditingMessage(msg);
+    setInput(msg.message || "");
+    setReplyTarget(null);
+    setOpenMessageMenu(null);
+    setTimeout(() => document.getElementById("chatInput")?.focus(), 0);
+  };
+
+  const handleCancelEdit = () => {
+    setEditingMessage(null);
+    setInput("");
+  };
+
+  const handleSubmitEdit = async () => {
+    if (!editingMessage) return;
+    const trimmed = input.trim();
+    if (!trimmed) return;
+    try {
+      const res = await fetch(
+        `${import.meta.env.VITE_BACKEND_API}/message/messages/${editingMessage._id}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json", ...authHeader },
+          body: JSON.stringify({ message: trimmed }),
+        }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.success) {
+        alert(data?.message || "Could not edit message");
+        return;
+      }
+      setMessages((prev) =>
+        prev.map((m) => (m._id === data.data._id ? { ...m, ...data.data } : m))
+      );
+      setEditingMessage(null);
+      setInput("");
+    } catch (e) {
+      alert("Edit failed");
+    }
+  };
+
+  const handleDeleteMessage = async (msg) => {
+    if (!msg) return;
+    if (String(msg.sender) !== String(senderId)) return;
+    if (!isWithinEditWindow(msg.createdAt)) return;
+    if (!window.confirm("Delete this message for everyone?")) return;
+    try {
+      const res = await fetch(
+        `${import.meta.env.VITE_BACKEND_API}/message/messages/${msg._id}`,
+        { method: "DELETE", headers: authHeader }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.success) {
+        alert(data?.message || "Could not delete message");
+        return;
+      }
+      setMessages((prev) =>
+        prev.map((m) => (m._id === data.data._id ? { ...m, ...data.data } : m))
+      );
+      setOpenMessageMenu(null);
+    } catch (e) {
+      alert("Delete failed");
+    }
+  };
+
+  const handleSendMessage = async () => {
+    if (loading || uploading) return;
+    if (editingMessage) return handleSubmitEdit();
+    const draftInput = input.trim();
+    const filesToSend = [...pendingFiles];
+    if (!draftInput && filesToSend.length === 0) return;
+
+    const replyId = replyTarget?.id || null;
+    setInput("");
+    setReplyTarget(null);
+    setPendingFiles([]);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    const ta = document.getElementById("chatInput");
+    if (ta) ta.style.height = "auto";
+
+    let attachmentUrls = [];
+    if (filesToSend.length > 0) {
+      setloading(true);
+      try {
+        const results = await Promise.all(
+          filesToSend.map(async ({ file }) => {
+            const r = await uploadFile(file);
+            if (!r?.fileUrl) return null;
+            return buildFileMessageUrl(r.fileUrl, file.name);
+          })
+        );
+        attachmentUrls = results.filter(Boolean);
+      } finally {
+        setloading(false);
+        filesToSend.forEach(
+          (p) => p.previewUrl && URL.revokeObjectURL(p.previewUrl)
+        );
+      }
+      if (attachmentUrls.length === 0 && !draftInput) return;
+    }
+
     const newMessage = {
       sender: senderId,
       receiver: receiverId,
-      message: messageContent,
+      message: draftInput,
+      attachments: attachmentUrls,
+      replyTo: replyId,
       createdAt: new Date(),
     };
 
     try {
-      await axios.post(
+      const response = await axios.post(
         `${import.meta.env.VITE_BACKEND_API}/message/send-message`,
         newMessage
       );
-      sendMessage(senderId, receiverId, messageContent);
-      setInput("");
+      const savedMessage = response?.data?.data;
+      if (savedMessage?._id) {
+        setMessages((prev) => {
+          if (prev.some((m) => m._id === savedMessage._id)) return prev;
+          return [...prev, savedMessage];
+        });
+      }
     } catch (error) {
       console.error("Error sending message:", error);
     }
   };
 
-  // ✅ Handle emoji selection
   const handleEmojiClick = (emojiData) => {
     setInput((prev) => prev + emojiData.emoji);
-    setTimeout(() => document.getElementById("chatInput").focus(), 0);
+    setTimeout(() => document.getElementById("chatInput")?.focus(), 0);
   };
 
-  const isImage = (url) => /\.(jpg|jpeg|png|gif|webp)$/i.test(url);
-  const isDocument = (url) => /\.(pdf|docx|xlsx|pptx)$/i.test(url);
+  const getReplyContext = (msg) => {
+    if (!msg?.replyTo && !msg?.replyPreview?.message) return null;
+    if (msg?.replyPreview?.message) {
+      const senderName =
+        msg.replyPreview.senderName ||
+        (String(msg.replyPreview.sender) === String(senderId)
+          ? "You"
+          : user?.name || "User");
+      return {
+        senderName,
+        message: msg.replyPreview.message,
+        id: msg.replyTo,
+      };
+    }
+    if (!msg?.replyTo) return null;
+    const original = messages.find((item) => item._id === msg.replyTo);
+    if (!original) {
+      return {
+        senderName: "Unknown",
+        message: "Original message not available",
+        id: msg.replyTo,
+      };
+    }
+    const senderName =
+      String(original.sender) === String(senderId)
+        ? "You"
+        : user?.name || "User";
+    return {
+      senderName,
+      message: getMessagePreview(original.message),
+      id: msg.replyTo,
+    };
+  };
+
+  const formatFileSize = (size) => {
+    if (!size) return "";
+    const kb = size / 1024;
+    if (kb < 1024) return `${kb.toFixed(1)} KB`;
+    return `${(kb / 1024).toFixed(1)} MB`;
+  };
+
+  const isSending = loading || uploading;
+
+  const formatDateLabel = (value) => {
+    const day = moment(value);
+    if (day.isSame(moment(), "day")) return "Today";
+    if (day.isSame(moment().subtract(1, "day"), "day")) return "Yesterday";
+    return day.format("DD MMM YYYY");
+  };
+
+  const handleReplySelect = (msg) => {
+    if (!msg?._id) return;
+    const senderName =
+      String(msg.sender) === String(senderId) ? "You" : user?.name || "User";
+    setReplyTarget({
+      id: msg._id,
+      senderName,
+      message: getMessagePreview(msg.message),
+    });
+  };
+
+  const scrollToMessage = (id) => {
+    if (!id) return;
+    const target = messageRefs.current[id];
+    if (!target) return;
+    target.scrollIntoView({ behavior: "smooth", block: "center" });
+    setHighlightedId(id);
+    if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+    highlightTimerRef.current = setTimeout(() => {
+      setHighlightedId((c) => (c === id ? null : c));
+    }, 1200);
+  };
+
+  const renderMessageBody = (msg, isSelf) => {
+    if (msg.isDeleted) {
+      return (
+        <span className="italic text-slate-500 text-[13px]">
+          This message was deleted
+        </span>
+      );
+    }
+    const value = msg.message;
+    if (isImage(value) || isLikelyAttachment(value)) {
+      return <FilePreview url={value} />;
+    }
+    // Always tokenise — handles single link, multiple links, mixed text+links,
+    // and newline/space-separated links. The old startsWith("http") shortcut
+    // was merging multiple links into one broken href.
+    const tokens = tokenizeMessage(value || "", {});
+    return (
+      <span className="whitespace-pre-wrap break-words overflow-auto">
+        {tokens.map((t, idx) => {
+          if (t.type === "url") {
+            return (
+              <a
+                key={idx}
+                href={t.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={`underline break-all ${
+                  isSelf ? "text-blue-700" : "text-blue-600"
+                }`}
+              >
+                {t.value}
+              </a>
+            );
+          }
+          return <span key={idx}>{t.value}</span>;
+        })}
+      </span>
+    );
+  };
+
+  if (!receiverId) {
+    return (
+      <div className="p-4 text-sm text-gray-700">
+        <p>Please pick a conversation from the list.</p>
+        <button
+          className="mt-3 px-3 py-2 bg-orange-500 text-white rounded text-xs"
+          onClick={() => navigate("/conversations")}
+        >
+          Go to conversations
+        </button>
+      </div>
+    );
+  }
 
   return (
-    <div className="p-4 w-full flex flex-col h-[500px]">
-      <div className="flex gap-4 mb-6 border-b pt-2 px-8 pb-2">
-        <p className="rounded-full border flex items-center justify-center w-10 h-10 text-xl text-white bg-orange-500">
-          {user?.name?.charAt(0) || selectedUser?.[0]?.name?.charAt(0)}
-        </p>
-        <div>
-          <h2 className="text-sm font-semibold">{user?.name}</h2>
-          <p className="text-[10px] text-green-500 font-semibold">
-            {isOnline ? "🟢 Online" : "🔴 Offline"}
-          </p>
+    <div className="w-full flex flex-col h-[100dvh] md:h-[calc(100vh-110px)] lg:h-[calc(100vh-80px)] bg-white">
+      <div className="slack-topbar px-3 lg:px-6 py-2.5">
+        <div className="flex items-center gap-3 min-w-0">
+          <Avatar
+            name={user?.name || ""}
+            src={otherAvatar || user?.avatar || ""}
+            size={36}
+          />
+          <div className="min-w-0">
+            <h2 className="text-[15px] font-bold text-ink truncate">
+              <span className="text-ink-muted mr-0.5">@</span>
+              {user?.name}
+            </h2>
+            <p className="text-chat-meta text-ink-muted flex items-center gap-1">
+              <span
+                className={`inline-block w-1.5 h-1.5 rounded-full ${
+                  isOnline ? "bg-confirm-500" : "bg-ink-faint"
+                }`}
+              />
+              {isOnline ? "Active now" : "Away"}
+            </p>
+          </div>
         </div>
       </div>
 
-      <div className="flex-1 p-4 overflow-y-auto scrollable mb-10">
-        {/* {messages.map((msg, index) => (
-          <div
-            key={index}
-            className={`p-2 max-w-xs rounded-lg mb-2 flex justify-between 
-            ${
-              msg.sender === senderId
-                ? "bg-gradient-to-r from-orange-500 to-orange-400 text-white ml-auto"
-                : "bg-gradient-to-l from-gray-500 to-gray-700 text-white"
-            }
-            `}
-            style={{
-              width: `${
-                msg.message.length <= 5
-                  ? 90
-                  : Math.min((msg.message?.length ?? 0) * 15, 300)
-              }px`,
-            }}
+      {/* Pinned messages banner — WhatsApp style */}
+      {pinnedMessages.length > 0 && (
+        <div className="px-3 lg:px-6 border-b border-surface-divider bg-surface-subtle">
+          <button
+            type="button"
+            onClick={() => setShowPinned((v) => !v)}
+            className="flex items-center justify-between w-full py-1.5 text-[12px] text-ink-muted hover:text-ink"
           >
-            <span className="whitespace-pre-wrap break-words overflow-auto">{msg.message}</span>
-            <span className="text-[9px] flex flex-col justify-end">
-              {moment(msg.createdAt).format("HH:mm")}
+            <span className="flex items-center gap-1.5 font-semibold">
+              <BsPinFill size={11} className="text-yellow-500" />
+              {pinnedMessages.length} pinned message{pinnedMessages.length !== 1 ? "s" : ""}
             </span>
-          </div>
-        ))} */}
-        {messages.map((msg, index) => {
-          return (
-            <div
-              key={index}
-              className={`p-2 max-w-xs rounded-lg mb-2 flex justify-between 
-                ${msg.sender === senderId
-                  ? "bg-gradient-to-r from-orange-500 to-orange-400 text-white ml-auto"
-                  : "bg-gradient-to-l from-gray-500 to-gray-700 text-white"
-                }`}
-              style={{
-                width: `${msg.message.length <= 5
-                  ? 90
-                  : Math.min((msg.message?.length ?? 0) * 15, 300)
-                  }px`,
-              }}
-            >
-              {isImage(msg.message) ? (
-                <>
-                  <img
-                    src={msg.message}
-                    alt="Sent Image"
-                    className="w-45 h-auto rounded-lg"
-                  />
+            <span>{showPinned ? "▲ Hide" : "▼ Show"}</span>
+          </button>
+          {showPinned && (
+            <ul className="pb-2 space-y-1">
+              {pinnedMessages.map((pm) => (
+                <li key={pm._id} className="flex items-start gap-2 rounded-md bg-white border border-surface-divider px-2.5 py-1.5 text-[12px]">
+                  <BsPinFill size={11} className="text-yellow-500 mt-0.5 shrink-0" />
+                  <span className="flex-1 min-w-0 text-ink line-clamp-2">{pm.message || "[attachment]"}</span>
                   <button
-                    onClick={() => downloadImage(msg.message)}
-                    className="px-2 py-1 bg-blue-000 text-white text-xs rounded-full text-center mt-1 self-start shadow-md"
-                  >
-                    📥 Download
-                  </button>
-                </>
-              ) : isDocument(msg.message) ? (
-                <div className="flex items-center gap-2 bg-gray-200 text-black p-2 rounded-lg">
-                  <span className="truncate w-20">
-                    {msg.message.split("/").pop()}
+                    type="button"
+                    onClick={() => handleTogglePin(pm)}
+                    className="shrink-0 text-ink-faint hover:text-red-500 text-xs"
+                    title="Unpin"
+                  >×</button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
+      <div
+        ref={messageListRef}
+        className="flex-1 px-2 lg:px-4 overflow-y-auto slack-scroll pb-2"
+        onScroll={handleMessageListScroll}
+      >
+        {loadingOlderMessages && (
+          <div className="flex justify-center py-2 text-[12px] text-gray-400">
+            Loading earlier messages…
+          </div>
+        )}
+        {messages.map((msg, index) => {
+          const isSelf = String(msg.sender) === String(senderId);
+          const senderLabel = isSelf ? "You" : user?.name || "Unknown";
+          const replyContext = getReplyContext(msg);
+          const currentDay = moment(msg.createdAt).format("YYYY-MM-DD");
+          const previousDay =
+            index > 0
+              ? moment(messages[index - 1]?.createdAt).format("YYYY-MM-DD")
+              : null;
+          const showDateDivider = index === 0 || currentDay !== previousDay;
+          const canMutate =
+            !msg.isDeleted && isSelf && isWithinEditWindow(msg.createdAt);
+          const canEdit =
+            canMutate && !(msg.message || "").startsWith("http");
+          return (
+            <div key={msg._id || index}>
+              {showDateDivider && (
+                <div className="flex justify-center my-2">
+                  <span className="px-3 py-1 rounded-full bg-gray-200 text-gray-600 text-[11px]">
+                    {formatDateLabel(msg.createdAt)}
                   </span>
-                  <a
-                    href={msg.message}
-                    download
-                    className="px-2 py-1 bg-blue-500 text-white text-xs rounded-full text-center mt-1 self-start shadow-md"
-                  >
-                    📥 Download
-                  </a>
                 </div>
-              ) : msg.message.startsWith("http") ? (
-                <a
-                  href={msg.message}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="underline break-words text-blue-300 break-all"
-                >
-                  {msg.message}
-                </a>
-              ) : (
-                <span className="whitespace-pre-wrap break-words overflow-auto">
-                  {msg.message}
-                </span>
               )}
-              <span className="text-[9px] flex flex-col justify-end">
-                {moment(msg.createdAt).format("HH:mm")}
-              </span>
+              <div className="flex items-start gap-2 mb-0.5 px-2">
+                <Avatar
+                  name={isSelf ? (selfProfile?.name || userData?.name || "Me") : (user?.name || "")}
+                  src={isSelf ? (selfProfile?.avatar || "") : (otherAvatar || user?.avatar || "")}
+                  size={36}
+                />
+                <div
+                  ref={(el) => {
+                    if (msg?._id && el) messageRefs.current[msg._id] = el;
+                  }}
+                  className={`group relative flex flex-col gap-1 px-2 py-1 rounded-md w-full max-w-full
+                    ${
+                      msg.isDeleted
+                        ? "text-ink-faint italic"
+                        : "text-ink"
+                    }
+                    ${highlightedId === msg._id ? "bg-yellow-50" : "hover:bg-surface-muted"}
+                  `}
+                >
+                  <div className="flex items-baseline gap-2">
+                    <span
+                      className="text-[14px] font-bold text-ink truncate max-w-[200px]"
+                      title={senderLabel}
+                    >
+                      {senderLabel}
+                    </span>
+                    <span className="text-chat-meta text-ink-faint">
+                      {moment(msg.createdAt).calendar(null, {
+                        sameDay: "[Today at] h:mm A",
+                        lastDay: "[Yesterday at] h:mm A",
+                        lastWeek: "ddd [at] h:mm A",
+                        sameElse: "MMM D [at] h:mm A",
+                      })}
+                    </span>
+                    <div className="ml-auto flex items-center gap-1">
+                      {!msg.isDeleted && (
+                        <button
+                          type="button"
+                          onClick={() => handleReplySelect(msg)}
+                          className="text-ink-faint hover:text-ink opacity-0 group-hover:opacity-100"
+                          title="Reply"
+                        >
+                          <CornerUpLeft className="w-3 h-3" />
+                        </button>
+                      )}
+                      {!msg.isDeleted && (
+                        <button
+                          type="button"
+                          onClick={() => handleTogglePin(msg)}
+                          className={`opacity-0 group-hover:opacity-100 ${msg.isPinned ? "text-yellow-500 !opacity-100" : "text-ink-faint hover:text-ink"}`}
+                          title={msg.isPinned ? "Unpin" : "Pin message"}
+                        >
+                          {msg.isPinned ? <BsPinFill size={12} /> : <BsPin size={12} />}
+                        </button>
+                      )}
+                      {canMutate && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setOpenMessageMenu(
+                              openMessageMenu === msg._id ? null : msg._id
+                            )
+                          }
+                          className="text-slate-400 hover:text-slate-700 opacity-0 group-hover:opacity-100"
+                          title="More"
+                        >
+                          ⋯
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {openMessageMenu === msg._id && (
+                    <div className="absolute right-1 top-6 z-20 bg-white border rounded shadow-lg text-xs">
+                      <div className="flex items-center gap-1 px-2 py-1.5 border-b">
+                        {QUICK_REACTIONS.map((emoji) => (
+                          <button
+                            key={emoji}
+                            type="button"
+                            onClick={() => handleToggleReaction(msg, emoji)}
+                            className="text-base leading-none hover:scale-125 transition-transform px-0.5"
+                            title="React"
+                          >
+                            {emoji}
+                          </button>
+                        ))}
+                      </div>
+                      {canEdit && (
+                        <button
+                          type="button"
+                          onClick={() => handleStartEdit(msg)}
+                          className="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 w-full text-left"
+                        >
+                          <Pencil className="w-3 h-3" /> Edit
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteMessage(msg)}
+                        className="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 text-red-600 w-full text-left"
+                      >
+                        <Trash2 className="w-3 h-3" /> Delete
+                      </button>
+                      <p className="px-3 py-1 text-[10px] text-gray-400 border-t">
+                        Window left:{" "}
+                        {formatRemainingEditWindow(msg.createdAt)}
+                      </p>
+                    </div>
+                  )}
+
+                  {replyContext && (
+                    <button
+                      type="button"
+                      onClick={() => scrollToMessage(replyContext.id)}
+                      className={`mb-1 px-2 py-1 rounded border-l-4 text-left ${
+                        isSelf
+                          ? "bg-[#F7EFC7] border-[#e5cf8b]"
+                          : "bg-slate-200/70 border-slate-300 text-slate-700"
+                      } ${replyContext.id ? "cursor-pointer" : "cursor-default"}`}
+                      disabled={!replyContext.id}
+                    >
+                      <p
+                        className="text-[10px] font-semibold truncate max-w-[220px]"
+                        title={replyContext.senderName}
+                      >
+                        {replyContext.senderName}
+                      </p>
+                      <p
+                        className="text-[10px] truncate"
+                        title={replyContext.message}
+                      >
+                        {replyContext.message}
+                      </p>
+                    </button>
+                  )}
+
+                  {/* Attachments grid + lightbox (issue #4 — Slack/WhatsApp
+                      style). Image attachments share a single grid + carousel;
+                      non-image attachments fall through to FilePreview chips. */}
+                  {(() => {
+                    if (msg.isDeleted) return null;
+                    const atts = Array.isArray(msg.attachments)
+                      ? msg.attachments.filter(Boolean)
+                      : [];
+                    if (atts.length === 0) return null;
+                    const imageAtts = atts.filter((u) => isImage(u));
+                    const otherAtts = atts.filter((u) => !isImage(u));
+                    return (
+                      <div className="flex flex-col gap-1.5">
+                        {imageAtts.length > 0 && (
+                          <ImageGrid
+                            urls={imageAtts}
+                            onOpen={(idx) =>
+                              setLightbox({ urls: imageAtts, index: idx })
+                            }
+                          />
+                        )}
+                        {otherAtts.map((u, i) => (
+                          <FilePreview key={i} url={u} />
+                        ))}
+                      </div>
+                    );
+                  })()}
+
+                  {!(
+                    Array.isArray(msg.attachments) &&
+                    msg.attachments.length > 0 &&
+                    !msg.message
+                  ) && renderMessageBody(msg, isSelf)}
+
+                  {msg.editedAt && !msg.isDeleted && (
+                    <span className="text-chat-meta text-ink-faint italic">(edited)</span>
+                  )}
+
+                  {Array.isArray(msg.reactions) && msg.reactions.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {Object.entries(
+                        msg.reactions.reduce((acc, r) => {
+                          (acc[r.emoji] = acc[r.emoji] || []).push(r);
+                          return acc;
+                        }, {})
+                      ).map(([emoji, reactors]) => {
+                        const iReacted = reactors.some(
+                          (r) => String(r.userId) === String(senderId)
+                        );
+                        return (
+                          <button
+                            key={emoji}
+                            type="button"
+                            onClick={() => handleToggleReaction(msg, emoji)}
+                            title={reactors.map((r) => r.userName).filter(Boolean).join(", ")}
+                            className={`flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[11px] border transition-colors ${
+                              iReacted
+                                ? "bg-blue-50 border-blue-300 text-blue-700"
+                                : "bg-white border-gray-200 text-gray-600 hover:bg-gray-50"
+                            }`}
+                          >
+                            <span>{emoji}</span>
+                            <span>{reactors.length}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           );
         })}
         <div ref={messagesEndRef} />
       </div>
 
-      <div className="p-4 bg-white flex flex-col items-center border-t fixed bottom-0 w-[65%] space-x-2">
+      {loading && (
+        <div className="flex items-center justify-center">
+          <div className="w-5 h-5 border-2 mb-4 border-orange-500 border-t-transparent rounded-full animate-spin"></div>
+        </div>
+      )}
 
-        {
-          loading && (
-            <div className="flex items-center justify-center">
-              <div className="w-5 h-5 border-2 mb-4 border-orange-500 border-t-transparent rounded-full animate-spin"></div>
+      <div className="p-3 lg:p-4 bg-white border-t w-full sticky bottom-0 left-0 right-0 z-10">
+        {editingMessage && (
+          <div className="mb-2 flex items-center gap-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2">
+            <Pencil className="w-4 h-4 text-blue-600 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-[10px] font-semibold text-blue-700">
+                Editing message
+              </p>
+              <p className="text-[11px] text-gray-600 truncate">
+                {editingMessage.message}
+              </p>
             </div>
-          )
-        }
-
-
-        <div className="flex w-full items-center  space-x-2">
+            <button
+              type="button"
+              onClick={handleCancelEdit}
+              className="text-gray-500 hover:text-gray-700"
+              aria-label="Cancel edit"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+        {replyTarget && !editingMessage && (
+          <div className="mb-2 flex items-center gap-3 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2">
+            <div className="flex-1 min-w-0">
+              <p className="text-[10px] font-semibold text-orange-700">
+                Replying to {replyTarget.senderName}
+              </p>
+              <p className="text-[11px] text-gray-600 truncate">
+                {replyTarget.message}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setReplyTarget(null)}
+              className="text-gray-500 hover:text-gray-700"
+              aria-label="Cancel reply"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+        {pendingFiles.length > 0 && !editingMessage && (
+          <div className="mb-2 rounded-lg border border-gray-200 bg-gray-50 p-2">
+            <p className="text-[10px] font-semibold text-gray-600 mb-1">
+              {pendingFiles.length} attachment{pendingFiles.length === 1 ? "" : "s"}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {pendingFiles.map((p, idx) => (
+                <div
+                  key={`${p.file.name}-${idx}`}
+                  className="relative w-16 h-16 rounded border border-gray-200 bg-white flex items-center justify-center overflow-hidden group"
+                  title={`${p.file.name} • ${formatFileSize(p.file.size)}`}
+                >
+                  {p.previewUrl ? (
+                    <img
+                      src={p.previewUrl}
+                      alt={p.file.name}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="text-center px-1">
+                      <span className="text-[10px] font-semibold text-gray-600">
+                        {p.file.name.split(".").pop()?.toUpperCase()}
+                      </span>
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPendingFiles((curr) => {
+                        const next = curr.filter((_, i) => i !== idx);
+                        if (p.previewUrl) URL.revokeObjectURL(p.previewUrl);
+                        return next;
+                      });
+                    }}
+                    className="absolute top-0 right-0 w-4 h-4 rounded-bl bg-black/60 text-white text-[10px] leading-none flex items-center justify-center opacity-0 group-hover:opacity-100"
+                    aria-label={`Remove ${p.file.name}`}
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        <div className="flex items-center w-full gap-2">
           <div className="relative">
             <button onClick={() => setShowEmojiPicker(!showEmojiPicker)}>
-              <BsEmojiSmile
-                size={22}
-                className="cursor-pointer text-gray-500"
-              />
+              <BsEmojiSmile size={22} className="cursor-pointer text-gray-500" />
             </button>
-
             {showEmojiPicker && (
               <div className="absolute bottom-10 left-0 z-50">
                 <EmojiPicker onEmojiClick={handleEmojiClick} />
@@ -309,33 +1042,95 @@ const Chat = () => {
             )}
           </div>
           <input
+            ref={fileInputRef}
             type="file"
-            onChange={(e) => setFile(e.target.files[0])}
+            multiple
+            onChange={(e) => {
+              const picked = Array.from(e.target.files || []);
+              if (picked.length === 0) return;
+              setPendingFiles((curr) => [
+                ...curr,
+                ...picked.map((f) => ({
+                  file: f,
+                  previewUrl: f.type?.startsWith("image/")
+                    ? URL.createObjectURL(f)
+                    : "",
+                })),
+              ]);
+              e.target.value = "";
+            }}
             className="hidden"
             id="fileInput"
           />
-          <label htmlFor="fileInput" className="cursor-pointer">
+          <label
+            htmlFor="fileInput"
+            className={`cursor-pointer ${
+              editingMessage ? "opacity-40 pointer-events-none" : ""
+            }`}
+            title="Attach files (multiple allowed)"
+          >
             <Paperclip size={22} className="text-gray-500" />
           </label>
 
-          <input
+          <textarea
             id="chatInput"
-            type="text"
-            className="flex-1 p-2 border rounded-lg outline-none text-[15px] w-full"
-            placeholder="Type a message..."
+            rows={1}
+            className="flex-1 p-2 border rounded-lg outline-none text-[15px] resize-none max-h-40 overflow-y-auto"
+            placeholder={
+              editingMessage
+                ? "Edit message…"
+                : "Type a message... (Shift/Alt+Enter for new line)"
+            }
             value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyPress={(e) => e.key === "Enter" && handleSendMessage()}
+            onChange={(e) => {
+              setInput(e.target.value);
+              const ta = e.target;
+              ta.style.height = "auto";
+              ta.style.height = `${Math.min(ta.scrollHeight, 160)}px`;
+            }}
+            onPaste={() => {
+              requestAnimationFrame(() => {
+                const ta = document.getElementById("chatInput");
+                if (ta) {
+                  ta.style.height = "auto";
+                  ta.style.height = `${Math.min(ta.scrollHeight, 160)}px`;
+                }
+              });
+            }}
+            onKeyDown={(e) => {
+              // Enter alone → send. Shift+Enter or Alt+Enter → newline.
+              if (e.key === "Enter" && !e.shiftKey && !e.altKey) {
+                e.preventDefault();
+                handleSendMessage();
+                requestAnimationFrame(() => {
+                  const ta = document.getElementById("chatInput");
+                  if (ta) ta.style.height = "auto";
+                });
+              }
+            }}
+            disabled={isSending}
           />
 
           <button
             onClick={handleSendMessage}
-            className="ml-2 p-2 bg-orange-400 text-white rounded-lg"
+            className={`p-2 bg-orange-400 text-white rounded-lg shrink-0 ${
+              isSending ? "opacity-60 cursor-not-allowed" : ""
+            }`}
+            disabled={isSending}
+            title={editingMessage ? "Save edit" : "Send"}
           >
             <Send className="w-5 h-5" />
           </button>
         </div>
       </div>
+
+      {lightbox && (
+        <Lightbox
+          urls={lightbox.urls}
+          startIndex={lightbox.index}
+          onClose={() => setLightbox(null)}
+        />
+      )}
     </div>
   );
 };

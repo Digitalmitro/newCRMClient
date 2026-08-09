@@ -1,13 +1,29 @@
 import { Link, useNavigate, useLocation } from "react-router-dom";
+import { createPortal } from "react-dom";
+import home from "../../../assets/desktop/home.svg";
 import arrow from "../../../assets/desktop/arrow.svg";
 import edit from "../../../assets/desktop/edit.svg";
 import logo from "../../../assets/desktop/logo.svg";
+import { FiChevronLeft, FiChevronRight } from "react-icons/fi";
 import { useAuth } from "../../../context/authContext";
 import { useEffect, useState } from "react";
 import socket from "../../../utils/socket";
 import axios from "axios";
+import Avatar from "../Common/Avatar";
+import ProfilePictureUploader from "../Common/ProfilePictureUploader";
+
+const getStableColor = (text = "DM") => {
+  let hash = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    hash = text.charCodeAt(i) + ((hash << 5) - hash);
+    hash |= 0;
+  }
+  const hue = Math.abs(hash) % 360;
+  return `hsl(${hue}, 70%, 40%)`;
+};
 
 function Sidebarpart() {
+  const SIDEBAR_PREF_KEY = "dm_client_desktop_sidebar_collapsed";
   const { getChannels } = useAuth();
   const location = useLocation();
   const [employees, setEmployees] = useState([]);
@@ -15,7 +31,38 @@ function Sidebarpart() {
   const [unreadMessages, setUnreadMessages] = useState({});
   const { getAllUsers,userData } = useAuth();
   const [openChatId, setOpenChatId] = useState(null);
+  const [sidebarSearch, setSidebarSearch] = useState("");
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem(SIDEBAR_PREF_KEY) === "1";
+    } catch (error) {
+      return false;
+    }
+  });
   const navigate = useNavigate();
+  const totalChannelUnread = channels.reduce(
+    (sum, channel) => sum + (channel?.unreadMessages || 0),
+    0
+  );
+
+  const [profile, setProfile] = useState(null);
+  const [profileOpen, setProfileOpen] = useState(false);
+
+  useEffect(() => {
+    const fetchProfile = async () => {
+      try {
+        const res = await fetch(
+          `${import.meta.env.VITE_BACKEND_API}/profile/me`,
+          { headers: { Authorization: `Bearer ${localStorage.getItem("token")}` } }
+        );
+        const data = await res.json().catch(() => ({}));
+        if (data?.success) setProfile(data.profile);
+      } catch (e) {
+        // ignore
+      }
+    };
+    fetchProfile();
+  }, []);
 
   const channel = async () => {
     const data = await getChannels();
@@ -36,10 +83,25 @@ function Sidebarpart() {
     fetchUsers();
     socket.on("updateUnread", async () => {
       fetchUsers();
+      channel();
     });
+
+    const onNewMsg = (msg) => {
+      if (!msg?.channelId) return;
+      setChannels((prev) => {
+        const idx = prev.findIndex((c) => c._id?.toString() === msg.channelId?.toString());
+        if (idx <= 0) return prev;
+        const updated = [...prev];
+        const [moved] = updated.splice(idx, 1);
+        updated.unshift({ ...moved, lastMessageTime: new Date().toISOString() });
+        return updated;
+      });
+    };
+    socket.on("new-channel-message", onNewMsg);
 
     return () => {
       socket.off("updateUnread");
+      socket.off("new-channel-message", onNewMsg);
       socket.disconnect();
     };
   }, []);
@@ -71,11 +133,15 @@ function Sidebarpart() {
     );
   };
 
-  const handleChannel = () => {
-    navigate("/create-channel");
-  };
   const handleChannelChat = (name, id) => {
-    navigate("/channelchat", {
+    setChannels((prev) =>
+      prev.map((channel) =>
+        channel?._id?.toString() === id?.toString()
+          ? { ...channel, unreadMessages: 0 }
+          : channel
+      )
+    );
+    navigate(`/channelchat/${id}`, {
       state: {
         name,
         id,
@@ -83,115 +149,231 @@ function Sidebarpart() {
     });
   };
 
+  const toggleSidebar = () => {
+    setIsSidebarCollapsed((prev) => {
+      const next = !prev;
+      localStorage.setItem(SIDEBAR_PREF_KEY, next ? "1" : "0");
+      return next;
+    });
+  };
+
   return (
-    <div className="  flex ">
-      <div className="h-screen px-3 pt-2 border border-orange-400 flex flex-col justify-between items-center">
-        <nav className="flex flex-col gap-1 items-center">
-          <Link to="/" className="flex items-center">
-            <div className="">
-              <img src={logo} alt="" className="h-[70px] w-[70px]" />
-            </div>
+    <div className="sticky top-0 flex h-[100dvh] shrink-0 overflow-hidden">
+      <div className="relative flex h-screen flex-col items-stretch justify-between bg-sidebar text-sidebar-text border-r border-sidebar-divider px-2 pt-2">
+        <nav className="flex flex-col gap-0.5 items-stretch">
+          <Link to="/home" className="flex flex-col items-center py-2 rounded-md">
+            <div className="flex items-center justify-center w-[50px] h-[50px] rounded-xl bg-white shadow-sm p-1"><img src={logo} alt="" className="h-full w-full object-contain" /></div>
+          </Link>
+          <Link to="/home" className="flex flex-col items-center py-2 rounded-md hover:bg-sidebar-hover text-white">
+            <img src={home} alt="" className="h-[20px] w-[20px] invert" />
+            <p className="text-[11px] font-semibold mt-0.5">Home</p>
           </Link>
         </nav>
-        <div className="">
-          <p className="rounded border flex items-center mb-4 justify-center w-10 text-2xl font-medium text-white bg-orange-600">
-            {userData?.name?.charAt(0)}
-          </p>
+        <div className="pb-3 flex justify-center">
+          <button
+            type="button"
+            onClick={() => setProfileOpen(true)}
+            title="My profile"
+            className="rounded-full"
+          >
+            <Avatar
+              name={userData?.name || "Client"}
+              src={profile?.avatar || ""}
+              size={36}
+            />
+          </button>
         </div>
+
+        <button
+          type="button"
+          onClick={toggleSidebar}
+          className="absolute -right-3 top-24 z-20 flex h-6 w-6 items-center justify-center rounded-full border border-sidebar-divider bg-sidebar-alt text-sidebar-text shadow hover:bg-sidebar-hover"
+          title={isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+          aria-label={isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+        >
+          {isSidebarCollapsed ? <FiChevronRight size={14} /> : <FiChevronLeft size={14} />}
+        </button>
       </div>
 
-      <div className="bg-gray-200 w-[250px] p-4 border border-orange-400">
-        <div className="flex justify-between items-center pt-4 mb-4">
-          <h2 className="text-[18px] font-medium   flex gap-2">
-            {userData?.name}
-            <img src={arrow} alt="" className="w-[8px] pt-1" />
-          </h2>
-          <img src={edit} alt="" className="w-[10px] h-[10px]" />
+      <div
+        className={`bg-sidebar text-sidebar-text border-r border-sidebar-divider h-screen flex flex-col overflow-hidden transition-all duration-300 ${
+          isSidebarCollapsed ? "w-0 p-0 opacity-0 border-l-0 border-r-0 pointer-events-none" : "w-[260px] py-3 opacity-100"
+        }`}
+      >
+        {!isSidebarCollapsed && (
+          <>
+        {/* Workspace header */}
+        <div className="flex justify-between items-center px-3 pb-3 mb-1 border-b border-sidebar-divider">
+          <button
+            type="button"
+            onClick={() => setProfileOpen(true)}
+            className="flex items-center gap-2 text-left min-w-0"
+            title="My profile"
+          >
+            <Avatar
+              name={userData?.name || "Client"}
+              src={profile?.avatar || ""}
+              size={32}
+              rounded="rounded-md"
+            />
+            <span className="min-w-0">
+              <span className="block text-[15px] font-bold text-white truncate">
+                {userData?.name}
+              </span>
+              <span className="block text-[11px] text-sidebar-muted truncate">
+                Client · workspace
+              </span>
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setProfileOpen(true)}
+            className="text-sidebar-muted hover:text-white"
+            aria-label="My profile"
+          >
+            <img src={edit} alt="" className="w-[12px] h-[12px] invert opacity-70" />
+          </button>
         </div>
 
-        {/* Channels Section */}
-        <div className="mb-4 pt-8">
-          <h3 className="text-[15px] font-bold text-gray-600 flex gap-2">
-            Channels <img src={arrow} alt="" className="w-[8px] pt-1" />
-          </h3>
-          <ul className="mt-2">
-            {channels?.map((channel) => (
-              <li key={channel._id}>
-                <p
-                  className="block p-2 text-gray-700 font-medium text-[14px] cursor-pointer"
-                  onClick={() => handleChannelChat(channel.name, channel._id)}
-                >
-                  <p className="flex space-x-2">
-                    <span
-                      className="border items-center  flex justify-center w-5 h-5 text-[12px] font-medium text-white"
-                      style={{
-                        backgroundColor: `hsl(${Math.floor(
-                          Math.random() * 360
-                        )}, 70%, 40%)`,
-                      }}
-                    >
-                      {channel?.name?.charAt(0).toUpperCase()}
+        <div className="flex flex-col flex-1 min-h-0 px-1">
+          {/* Search input */}
+          <div className="px-1 mb-1">
+            <input
+              type="text"
+              placeholder="Search channels or people..."
+              value={sidebarSearch}
+              onChange={(e) => setSidebarSearch(e.target.value)}
+              className="w-full text-[13px] px-2.5 py-1.5 rounded-md bg-sidebar-hover text-white placeholder-sidebar-muted border border-sidebar-divider focus:outline-none focus:border-sidebar-active"
+            />
+          </div>
+          {/* Channels Section */}
+          <div className="pt-1 flex flex-col min-h-0 flex-[0.95]">
+            <div className="slack-section-header">
+              <span>Channels</span>
+              {totalChannelUnread > 0 && (
+                <span className="slack-unread">{totalChannelUnread}</span>
+              )}
+            </div>
+            <ul className="flex-1 min-h-0 overflow-y-auto slack-scroll slack-scroll-dark">
+              {channels?.filter(ch => !sidebarSearch || ch.name?.toLowerCase().includes(sidebarSearch.toLowerCase())).map((channel) => {
+                const isActive = location.pathname === `/channelchat/${channel._id}`;
+                return (
+                <li key={channel._id}>
+                  <button
+                    type="button"
+                    className={`slack-row w-full justify-start text-left ${isActive ? "is-active" : ""}`}
+                    onClick={() => handleChannelChat(channel.name, channel._id)}
+                  >
+                    <Avatar
+                      name={channel?.name}
+                      src={channel?.image || ""}
+                      size={18}
+                      fit="contain"
+                      fontSize="10px"
+                    />
+                    <span className="flex-1 min-w-0 font-medium text-white flex items-center gap-1.5 overflow-hidden">
+                      <span className="text-sidebar-muted mr-0.5 shrink-0">#</span>
+                      <span className="truncate min-w-0">{channel.name}</span>
+                      <span
+                        className="shrink-0 inline-block w-2 h-2 rounded-full"
+                        style={{ backgroundColor: channel.statusTag === 'Active' || !channel.statusTag ? '#22c55e' : '#ef4444' }}
+                        title={channel.statusTag || 'Active'}
+                      />
                     </span>
-                    <span>{channel.name}</span>
-                  </p>
-                </p>
-              </li>
-            ))}
-            {/* <li>
-              <p
-                className="block p-2 text-gray-700 text-[13px] cursor-pointer"
-                onClick={handleChannel}
-              >
-                + Add Channels
-              </p>
-            </li> */}
-          </ul>
-        </div>
-
-        {/* Messages Section */}
-        <div className="mb-4">
-          <h3 className="text-[15px] font-bold text-gray-600 flex gap-2">
-            Messages <img src={arrow} alt="" className="w-[8px] pt-1" />
-          </h3>
-          <ul className="mt-2">
-            {employees
-              ?.filter((user) => user.lastMessageTime)
-              ?.slice(0, 8)
-              .map((user, i) => (
-                <li
-                  key={i}
-                  className="block p-2 text-gray-700 text-[14px] font-medium cursor-pointer"
-                  onClick={() => handleChat(user.name, user.id)}
-                >
-                  <p className="flex space-x-2">
-                    <span
-                      className="border items-center  flex justify-center w-5 h-5 text-[12px] font-medium text-white"
-                      style={{
-                        backgroundColor: `hsl(${Math.floor(
-                          Math.random() * 360
-                        )}, 70%, 40%)`,
-                      }}
-                    >
-                      {user?.name?.charAt(0).toUpperCase()}
-                    </span>
-                    <span>{user?.name}</span>
-                    {unreadMessages[user.id] > 0 && openChatId !== user.id && (
-                      <span className="text-green-500 font-bold">
-                        ({unreadMessages[user.id]})
-                      </span>
+                    {channel?.unreadMessages > 0 && (
+                      <span className="slack-unread">{channel.unreadMessages}</span>
                     )}
-                  </p>
+                  </button>
                 </li>
-              ))}
-            <li
-              className="block p-2 text-gray-700 text-[15px] cursor-pointer"
+                );
+              })}
+            </ul>
+          </div>
+
+          {/* Direct Messages Section */}
+          <div className="flex flex-col min-h-0 flex-[1.15] mt-1">
+            <div className="slack-section-header">
+              <span>Direct messages</span>
+            </div>
+            <ul className="flex-1 min-h-0 overflow-y-auto slack-scroll slack-scroll-dark">
+              {employees
+                ?.filter((user) => user.lastMessageTime && (!sidebarSearch || user.name?.toLowerCase().includes(sidebarSearch.toLowerCase())))
+                .map((user, i) => {
+                  const isActive = location.pathname === `/chat/${user.id}`;
+                  return (
+                  <li key={user.id || i}>
+                    <button
+                      type="button"
+                      className={`slack-row w-full justify-start text-left ${isActive ? "is-active" : ""}`}
+                      onClick={() => handleChat(user.name, user.id)}
+                    >
+                      <Avatar
+                        name={user?.name}
+                        src={user?.avatar || ""}
+                        size={18}
+                        fontSize="10px"
+                      />
+                      <span className="flex-1 truncate slack-row-meta">{user?.name}</span>
+                      {unreadMessages[user.id] > 0 && openChatId !== user.id && (
+                        <span className="slack-unread">{unreadMessages[user.id]}</span>
+                      )}
+                    </button>
+                  </li>
+                  );
+                })}
+            </ul>
+            <button
+              type="button"
+              className="slack-row text-sidebar-muted w-full mt-1"
               onClick={handleCowrokers}
             >
-              + Add Coworker
-            </li>
-          </ul>
+              <span className="w-[18px] h-[18px] rounded-sm bg-sidebar-hover flex items-center justify-center text-sidebar-muted">+</span>
+              <span>Add coworker</span>
+            </button>
+          </div>
         </div>
+          </>
+        )}
       </div>
+
+      {profileOpen && createPortal(
+        <div className="fixed inset-0 bg-black/40 z-[9999] flex items-center justify-center">
+          <div className="bg-white w-full max-w-md rounded-lg shadow-modal p-4">
+            <div className="flex items-center justify-between border-b border-surface-divider pb-2">
+              <h3 className="text-sm font-semibold text-ink">My Profile</h3>
+              <button
+                type="button"
+                onClick={() => setProfileOpen(false)}
+                className="text-ink-muted text-xl leading-none"
+              >
+                &times;
+              </button>
+            </div>
+            <div className="mt-3">
+              <ProfilePictureUploader
+                name={profile?.name || userData?.name || ""}
+                currentAvatar={profile?.avatar || ""}
+                onUpdated={(updated) => {
+                  if (updated) setProfile((p) => ({ ...(p || {}), ...updated }));
+                }}
+              />
+            </div>
+            <div className="mt-4 text-xs text-ink-muted space-y-1">
+              <p><span className="font-semibold text-ink">Name:</span> {profile?.name || userData?.name}</p>
+              <p><span className="font-semibold text-ink">Email:</span> {profile?.email || "—"}</p>
+            </div>
+            <div className="mt-4 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setProfileOpen(false)}
+                className="slack-btn-ghost"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      , document.body)}
     </div>
   );
 }

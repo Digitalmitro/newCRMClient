@@ -4,9 +4,10 @@ import { onNotificationReceived } from "../utils/socket";
 
 export const useGlobalNotification = () => {
   useEffect(() => {
-    const unsubscribe = onNotificationReceived((notification) => {
-      //("🔔 Notification received globally:", notification);
-    });
+    const unsubscribe = onNotificationReceived(
+      () => {},
+      { showBrowserNotification: true }
+    );
 
     return () => unsubscribe(); // Cleanup listener on unmount
   }, []);

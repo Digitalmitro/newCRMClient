@@ -1,144 +1,73 @@
-import attendence from "../../assets/desktop/attendence.svg";
-import calls from "../../assets/desktop/calls.svg";
-import sales from "../../assets/desktop/saleshome.svg";
-import project from "../../assets/desktop/projectshome.svg";
-import transferImg from "../../assets/desktop/transferhome.svg";
-import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/authContext";
-import { useEffect, useState } from "react";
-import moment from "moment";
+
 function Home() {
-  const [dates, setDates] = useState([]);
-  const [trans, setTrans] = useState([]);
-  const [call, setCall] = useState([]);
-  const [sale, setSale] = useState([]);
-  const { fetchAttendance } = useAuth();
-  const token = localStorage.getItem("token");
-  const Sales = async () => {
-    try {
-      const response = await fetch(
-        `${import.meta.env.VITE_BACKEND_API}/sale/user`,
-        {
-          method: "GET",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
-      if (response.ok) {
-        const data = await response.json();
-        setSale(data?.data || []);
-      }
-    } catch (error) {
-      console.error("Error fetching sales data:", error);
-    }
-  };
-  const transfer = async () => {
-    try {
-      const response = await fetch(
-        `${import.meta.env.VITE_BACKEND_API}/transfer/user`,
-        {
-          method: "GET",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
-      const result = await response.json();
-      setTrans(result.data || []);
-    } catch (error) {
-      console.error("Error fetching data:", error);
-    }
-  };
-  const callback = async () => {
-    try {
-      const response = await fetch(
-        `${import.meta.env.VITE_BACKEND_API}/callback/user`,
-        {
-          method: "GET",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
-      const result = await response.json();
-      console.log(result.data.length)
-      setCall(result.data || []);
-    } catch (error) {
-      console.error("Error fetching data:", error);
-    }
-  };
-  const navigate = useNavigate();
-  const handleAttendaneList = () => {
-    navigate("/attendance-list");
-  };
-  const handleCallback = () => {
-    navigate("/callbacklist");
-  };
-  const handleSales = () => {
-    navigate("/salelist");
-  };
-  const handleTransfer = () => {
-    navigate("/transferlist");
-  };
-  const attendanceDates = dates.filter((items) => items.createdAt).length;
-  const months = dates.map((items) => moment(items?.currentDate).format("MMM"));
-  useEffect(() => {
-    const getData = async () => {
-      const data = await fetchAttendance("this_month");
-      if (data) {
-        setDates(data?.data);
-      }
-    };
-    getData();
-    transfer();
-    callback();
-    Sales();
-  }, []);
+  const { userData } = useAuth();
+
   return (
-    <div className="w-full">
-      {/* Card Grid */}
-      <div className="grid grid-cols-3 gap-8 w-full p-6">
-        <div
-          className="p-4 border rounded-md text-center h-[150px] w-full flex flex-col justify-center items-center cursor-pointer"
-          onClick={handleAttendaneList}
-        >
-          <img src={attendence} alt="" className="w-[50px] h-[50px]" />
-          <p className="flex flex-col p-2 text-[12px]">
-            Attendee List: {months[0]} - {attendanceDates} days
+    <div className="w-full px-3 py-3 sm:px-4 sm:py-4 lg:px-6 lg:py-6">
+      <div className="app-soft-panel rounded-[28px] p-5">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-orange-500">
+              Client Workspace
+            </p>
+            <h1 className="mt-2 text-2xl font-semibold text-slate-900">Client overview</h1>
+            <p className="mt-2 max-w-2xl text-sm text-slate-500">
+              This workspace is focused on communication. Use the sidebar to open channels,
+              continue direct conversations, and stay updated from the notification bell.
+            </p>
+          </div>
+          <span className="app-stat-chip self-start rounded-full px-3 py-1 text-xs font-semibold">
+            Welcome
+          </span>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(320px,0.9fr)]">
+        <section className="app-soft-panel rounded-[26px] p-6">
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-orange-500">
+            Welcome Message
           </p>
-        </div>
-        <div
-          className="p-4 border rounded-md text-center h-[150px] w-full flex flex-col justify-center items-center cursor-pointer"
-          onClick={handleCallback}
-        >
-          <img src={calls} alt="" className="w-[50px] h-[50px]" />
-          <p className="flex flex-col p-2 text-[12px]">All Callback: {call.length}</p>
-        </div>
-        <div
-          className="p-4 border rounded-md text-center h-[150px] w-full flex flex-col justify-center items-center cursor-pointer"
-          onClick={handleSales}
-        >
-          <img src={sales} alt="" className="w-[50px] h-[50px]" />
-          <p className="flex flex-col p-2 text-[12px]">All Sales: {sale.length}</p>
-        </div>
-        <div
-          className="p-4 border rounded-md text-center h-[150px] w-full flex flex-col justify-center items-center cursor-pointer"
-          onClick={handleTransfer}
-        >
-          <img src={transferImg} alt="" className="w-[50px] h-[50px]" />
-          <p className="flex flex-col p-2 text-[12px]">
-            {" "}
-            All Transfer: {trans.length}
+          <h2 className="mt-3 text-xl font-semibold text-slate-900">
+            Hello {userData?.name || "there"}
+          </h2>
+          <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-600">
+            Your client portal is designed to keep collaboration simple. You can join channel
+            discussions, exchange direct messages with the team, review shared updates, and stay
+            informed through the notification panel without navigating through internal admin tools.
           </p>
-        </div>
-        <div className="p-4 border rounded-md text-center h-[150px] w-full flex flex-col justify-center items-center cursor-pointer">
-          <img src={project} alt="" className="w-[50px] h-[50px]" />
-          <p className="flex flex-col p-2 text-[12px]"> Projects: 0</p>
-        </div>
+          <p className="mt-4 text-sm leading-7 text-slate-600">
+            If you are waiting on a response, open the relevant channel from the sidebar or check
+            your recent conversations under Messages. New alerts and task-related updates will also
+            appear from the bell icon in the top bar.
+          </p>
+        </section>
+
+        <aside className="app-soft-panel rounded-[26px] p-6">
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-orange-500">
+            Quick Guide
+          </p>
+          <div className="mt-4 space-y-4">
+            <div className="rounded-[22px] border border-slate-200 bg-white px-4 py-4 shadow-sm">
+              <p className="text-sm font-semibold text-slate-900">Channels</p>
+              <p className="mt-2 text-sm leading-6 text-slate-500">
+                Use channels for project or topic-based communication with the team.
+              </p>
+            </div>
+            <div className="rounded-[22px] border border-slate-200 bg-white px-4 py-4 shadow-sm">
+              <p className="text-sm font-semibold text-slate-900">Messages</p>
+              <p className="mt-2 text-sm leading-6 text-slate-500">
+                Open direct conversations from the middle sidebar when you need one-to-one discussion.
+              </p>
+            </div>
+            <div className="rounded-[22px] border border-slate-200 bg-white px-4 py-4 shadow-sm">
+              <p className="text-sm font-semibold text-slate-900">Notifications</p>
+              <p className="mt-2 text-sm leading-6 text-slate-500">
+                The bell icon shows recent updates, mentions, and important alerts in one place.
+              </p>
+            </div>
+          </div>
+        </aside>
       </div>
     </div>
   );
