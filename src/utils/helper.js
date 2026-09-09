@@ -127,9 +127,17 @@ export const downloadFile = async (url, fallbackName) => {
   const absoluteUrl = resolveFileUrl(url);
   const downloadUrl = getDownloadUrl(absoluteUrl, fallbackName);
   try {
+    // Fetch the plain URL, not the fl_attachment-transformed one. Cloudinary
+    // raw resources (docs, .txt, .zip, etc.) don't support transformations
+    // at all - requesting fl_attachment on a raw resource was failing
+    // outright, so files like .txt never got past this try block on web,
+    // even though the same file downloaded fine in the app (which fetches
+    // the plain URL directly). The blob + `download` attribute below never
+    // actually needed the transformation - it forces a save regardless of
+    // resource type once we have the bytes.
     // We use `mode: 'cors'` explicitly so failures throw rather than returning
     // an opaque response we can't read.
-    const response = await fetch(downloadUrl, { mode: "cors" });
+    const response = await fetch(absoluteUrl, { mode: "cors" });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const blob = await response.blob();
     const blobUrl = URL.createObjectURL(blob);
